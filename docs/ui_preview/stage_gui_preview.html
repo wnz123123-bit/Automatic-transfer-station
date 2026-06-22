@@ -1,0 +1,1364 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>二维材料转移台控制界面预览</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --panel: #101820;
+      --panel-2: #182430;
+      --text: #17212b;
+      --muted: #657383;
+      --line: #d7dee8;
+      --card: #ffffff;
+      --stage: #168a72;
+      --adsorb: #d07a1b;
+      --slide: #285fbd;
+      --scope: #9a3d7a;
+      --danger: #b94747;
+      --shadow: 0 16px 42px rgba(27, 43, 58, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 1fr;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+
+    .status-lamp {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9aa8b6;
+      box-shadow: inset 0 0 0 1px rgba(23, 33, 43, 0.18);
+    }
+
+    .status[data-motion-state="on"] .status-lamp {
+      background: #16a34a;
+      box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18), 0 0 10px rgba(22, 163, 74, 0.45);
+    }
+
+    .status[data-motion-state="reset"] .status-lamp {
+      background: #d97706;
+      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.16), 0 0 10px rgba(217, 119, 6, 0.35);
+    }
+
+    .panel-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .command {
+      border: 1px solid #cbd6e2;
+      background: #ffffff;
+      color: #243140;
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    .command.primary {
+      background: #1f6f5b;
+      color: #ffffff;
+      border-color: #1f6f5b;
+    }
+
+    .command.warn {
+      color: #8b3f10;
+      border-color: #e0b37c;
+      background: #fff8ef;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(320px, 34%) minmax(460px, 42%) minmax(260px, 24%);
+      gap: 10px;
+      padding: 10px;
+      min-height: 0;
+    }
+
+    .stage-panel {
+      min-height: 0;
+      overflow: auto;
+      background: var(--panel);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 10px;
+      display: grid;
+      grid-template-rows: auto auto;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .stage-map {
+      min-height: 0;
+      border-radius: 6px;
+      background: #ffffff;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 6px;
+    }
+
+    .stage-microscope-controls .axis-card-list {
+      gap: 8px;
+    }
+
+    .stage-figure {
+      position: relative;
+      width: min(100%, 620px);
+      max-height: 100%;
+      display: block;
+    }
+
+    .stage-figure img {
+      width: 100%;
+      height: auto;
+      display: block;
+      user-select: none;
+    }
+
+    .axis-hotspot {
+      position: absolute;
+      left: var(--x);
+      top: var(--y);
+      transform: translate(-50%, -50%);
+      border: 2px solid var(--axis-color);
+      background: rgba(255, 255, 255, 0.94);
+      color: #111a22;
+      border-radius: 7px;
+      padding: 4px 6px;
+      box-shadow: 0 9px 24px rgba(0, 0, 0, 0.22);
+      cursor: pointer;
+      min-width: 70px;
+      text-align: left;
+      transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+    }
+
+    .axis-hotspot strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.15;
+    }
+
+    .axis-hotspot small {
+      display: block;
+      color: #52606e;
+      font-size: 10px;
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .axis-hotspot.active-axis {
+      transform: translate(-50%, -50%) scale(1.06);
+      background: #fffdf7;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--axis-color) 25%, transparent), 0 14px 34px rgba(0, 0, 0, 0.28);
+      z-index: 6;
+    }
+
+    .stage-color {
+      --axis-color: var(--stage);
+    }
+
+    .adsorb-color {
+      --axis-color: var(--adsorb);
+    }
+
+    .slide-color {
+      --axis-color: var(--slide);
+    }
+
+    .scope-color {
+      --axis-color: var(--scope);
+    }
+
+    .control-panel {
+      min-height: 0;
+      overflow: auto;
+      background: #f8fafc;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      border: 1px solid #dfe6ee;
+      padding: 10px;
+    }
+
+    .axis-status-bar {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .axis-status-bar .status {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    .temperature-panel {
+      min-height: 0;
+      overflow: auto;
+      background: #f8fafc;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      border: 1px solid #dfe6ee;
+      padding: 10px;
+    }
+
+    .control-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .control-title-main {
+      display: grid;
+      gap: 7px;
+    }
+
+    .control-title h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .control-title span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .temperature-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .temperature-title h2 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .temperature-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .temperature-card-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .temperature-card {
+      background: var(--card);
+      border: 1px solid #dde5ef;
+      border-left: 5px solid #b54708;
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .temperature-card h3 {
+      margin: 0 0 8px;
+      color: #334154;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .temperature-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px 8px;
+      align-items: center;
+    }
+
+    .temperature-grid label,
+    .temperature-readout span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .temperature-grid input,
+    .temperature-grid select {
+      min-width: 0;
+      border: 1px solid #cbd6e2;
+      border-radius: 6px;
+      padding: 5px 7px;
+      color: #1f2935;
+      background: #ffffff;
+    }
+
+    .temperature-button {
+      min-height: 30px;
+      border: 1px solid #cbd6e2;
+      border-radius: 6px;
+      background: linear-gradient(#ffffff, #edf2f7);
+      color: #223044;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .temperature-button.primary {
+      background: #1f6f5b;
+      border-color: #1f6f5b;
+      color: #ffffff;
+    }
+
+    .temperature-button.danger {
+      background: #fff1f0;
+      border-color: #efb4af;
+      color: #9f2a22;
+    }
+
+    .temperature-wide {
+      grid-column: 1 / -1;
+    }
+
+    .temperature-readout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+    }
+
+    .temperature-value {
+      display: block;
+      margin-top: 3px;
+      padding: 5px 7px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: #1f3350;
+      font-weight: 800;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .temperature-plot-placeholder {
+      min-height: 116px;
+      border: 1px dashed #cbd6e2;
+      border-radius: 7px;
+      background: linear-gradient(#ffffff, #f4f7fb);
+      display: grid;
+      place-items: center;
+      color: #64748b;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .temperature-status {
+      margin-top: 8px;
+      color: #175cd3;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .control-layout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      align-items: start;
+    }
+
+    .axis-group {
+      margin-bottom: 0;
+    }
+
+    .axis-group.full-row {
+      grid-column: 1 / -1;
+    }
+
+    .axis-group h3 {
+      margin: 0 0 8px;
+      color: #334154;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .stage-microscope-controls h3 {
+      color: #f6f8fb;
+      font-weight: 800;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    }
+
+    .axis-card-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .axis-group.full-row .axis-card-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .axis-group.full-row[data-section="microscope"] .axis-card-list {
+      grid-template-columns: 1fr;
+    }
+
+    .axis-card {
+      background: var(--card);
+      border: 1px solid #dde5ef;
+      border-left: 5px solid var(--axis-color);
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 0;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+
+    .axis-card.active-axis {
+      border-color: var(--axis-color);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--axis-color) 18%, transparent);
+      transform: translateX(-2px);
+    }
+
+    .axis-card-header {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      grid-template-areas: "name role" "position position";
+      align-items: start;
+      gap: 6px 8px;
+      margin-bottom: 9px;
+    }
+
+    .axis-name {
+      grid-area: name;
+      color: var(--axis-color);
+      font-weight: 800;
+      font-size: 17px;
+    }
+
+    .axis-role {
+      grid-area: role;
+      min-width: 0;
+      color: #2e3a47;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      word-break: keep-all;
+    }
+
+    .axis-pos {
+      grid-area: position;
+      justify-self: start;
+      color: #566575;
+      font-size: 12px;
+      white-space: nowrap;
+      padding: 4px 7px;
+      background: #f1f5f9;
+      border-radius: 5px;
+    }
+
+    .axis-card[data-axis="MicroscopeZ"] .axis-card-header {
+      grid-template-columns: max-content minmax(0, 1fr);
+      grid-template-areas: "name role" "position position";
+      align-items: baseline;
+      gap: 5px 8px;
+    }
+
+    .axis-card[data-axis="MicroscopeZ"] .axis-name {
+      white-space: nowrap;
+      line-height: 1.2;
+    }
+
+    .axis-card[data-axis="MicroscopeZ"] .axis-role {
+      align-self: start;
+    }
+
+    .axis-position-editor {
+      grid-area: position;
+      display: inline-flex;
+      align-items: center;
+      justify-self: stretch;
+      gap: 4px;
+      width: 100%;
+      white-space: nowrap;
+    }
+
+    .position-value {
+      display: inline-flex;
+      align-items: center;
+      flex: 1 1 auto;
+      justify-content: flex-end;
+      min-width: 0;
+      gap: 3px;
+      color: #566575;
+      font-size: 12px;
+      padding: 3px 6px;
+      background: #f1f5f9;
+      border: 1px solid transparent;
+      border-radius: 5px;
+    }
+
+    .position-value:focus-within {
+      border-color: var(--axis-color);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--axis-color) 16%, transparent);
+      background: #ffffff;
+    }
+
+    .axis-position-input {
+      width: 58px;
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      color: #244264;
+      background: transparent;
+      text-align: right;
+      outline: none;
+      font-size: 12px;
+    }
+
+    .position-popup {
+      flex: 0 0 auto;
+      border: 1px solid #cbd6e2;
+      background: #ffffff;
+      color: #253240;
+      border-radius: 5px;
+      min-height: 24px;
+      padding: 2px 6px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .position-popup:hover {
+      border-color: var(--axis-color);
+      color: var(--axis-color);
+    }
+
+    .position-dialog {
+      width: min(360px, calc(100vw - 32px));
+      border: 0;
+      border-radius: 8px;
+      padding: 0;
+      color: var(--text);
+      box-shadow: 0 22px 70px rgba(23, 33, 43, 0.28);
+    }
+
+    .position-dialog::backdrop {
+      background: rgba(15, 23, 42, 0.38);
+    }
+
+    .position-dialog-panel {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      background: #ffffff;
+    }
+
+    .position-dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .position-dialog-header h2 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .position-dialog-header span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .position-dialog-field {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .position-dialog-input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .position-dialog-field input {
+      min-width: 0;
+      border: 1px solid #cbd6e2;
+      border-radius: 6px;
+      padding: 8px 9px;
+      color: #1f2935;
+      background: #ffffff;
+    }
+
+    .position-dialog-unit {
+      color: #566575;
+      font-size: 13px;
+    }
+
+    .position-dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .axis-motion {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0;
+      border: 1px solid #707780;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 6px;
+      background: #cfcfcf;
+    }
+
+    .motion-btn {
+      position: relative;
+      border: 0;
+      border-right: 1px solid #707780;
+      background: linear-gradient(#e4e6e9, #cfd3d8);
+      color: #0f1720;
+      min-height: 28px;
+      padding: 0;
+      cursor: pointer;
+      display: grid;
+      align-items: center;
+      justify-items: center;
+      line-height: 1;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+      transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .motion-btn:last-child {
+      border-right: 0;
+    }
+
+    .motion-symbol {
+      display: block;
+      position: relative;
+      width: 26px;
+      height: 20px;
+      color: currentColor;
+    }
+
+    .motion-symbol::before,
+    .motion-symbol::after {
+      content: "";
+      position: absolute;
+      box-sizing: border-box;
+      color: currentColor;
+    }
+
+    .motion-symbol-continuous-negative::before,
+    .motion-symbol-continuous-positive::before {
+      top: 50%;
+      left: 50%;
+      width: 22px;
+      height: 3px;
+      border-radius: 999px;
+      background: currentColor;
+      transform: translate(-50%, -50%);
+    }
+
+    .motion-symbol-continuous-negative::after {
+      top: 50%;
+      left: 3px;
+      width: 10px;
+      height: 10px;
+      border-left: 3px solid currentColor;
+      border-bottom: 3px solid currentColor;
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .motion-symbol-continuous-positive::after {
+      top: 50%;
+      right: 3px;
+      width: 10px;
+      height: 10px;
+      border-right: 3px solid currentColor;
+      border-top: 3px solid currentColor;
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .motion-symbol-jog-negative::before {
+      top: 50%;
+      left: 52%;
+      width: 10px;
+      height: 10px;
+      border-left: 4px solid currentColor;
+      border-bottom: 4px solid currentColor;
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    .motion-symbol-jog-positive::before {
+      top: 50%;
+      left: 48%;
+      width: 10px;
+      height: 10px;
+      border-right: 4px solid currentColor;
+      border-top: 4px solid currentColor;
+      transform: translate(-50%, -50%) rotate(45deg);
+    }
+
+    .motion-symbol-stop::before {
+      top: 50%;
+      left: 50%;
+      width: 9px;
+      height: 9px;
+      border-radius: 1px;
+      background: currentColor;
+      transform: translate(-50%, -50%);
+    }
+
+    .motion-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+
+    .motion-btn:active,
+    .motion-btn.is-pressed {
+      background: var(--axis-color);
+      color: #ffffff;
+    }
+
+    .motion-stop:active {
+      background: #111827;
+      color: #ffffff;
+    }
+
+    .axis-settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      gap: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .field input {
+      min-width: 0;
+      border: 1px solid #cbd6e2;
+      border-radius: 6px;
+      padding: 6px 7px;
+      background: #ffffff;
+      color: #1f2935;
+    }
+
+    .objective-selector {
+      background: var(--card);
+      border: 1px solid #dde5ef;
+      border-left: 5px solid var(--axis-color);
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .objective-selector h4 {
+      margin: 0 0 8px;
+      color: #2e3a47;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .objective-buttons {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .objective-button {
+      min-height: 30px;
+      border: 1px solid #cbd6e2;
+      border-radius: 6px;
+      background: linear-gradient(#ffffff, #edf2f7);
+      color: #223044;
+      font-weight: 800;
+      cursor: pointer;
+      transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .objective-button:hover {
+      border-color: var(--axis-color);
+      color: var(--axis-color);
+    }
+
+    .objective-button.is-selected {
+      border-color: var(--axis-color);
+      background: var(--axis-color);
+      color: #ffffff;
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--axis-color) 16%, transparent);
+    }
+
+    @media (max-width: 1100px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .stage-panel {
+        min-height: 760px;
+      }
+
+      .control-layout,
+      .axis-group.full-row .axis-card-list {
+        grid-template-columns: 1fr;
+      }
+
+      .objective-buttons {
+        grid-template-columns: repeat(5, minmax(60px, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="workspace">
+      <section class="stage-panel">
+        <div class="stage-map" aria-label="二维材料转移台轴向示意图">
+          <div class="stage-figure">
+            <img src="assets/stage_overview.png" alt="二维材料转移台设备图">
+            <button class="axis-hotspot stage-color" data-axis="X1" style="--x: 54%; --y: 84%;">
+              <strong>X1</strong><small>整体左右</small>
+            </button>
+            <button class="axis-hotspot stage-color" data-axis="Y1" style="--x: 22%; --y: 76%;">
+              <strong>Y1</strong><small>整体前后</small>
+            </button>
+            <button class="axis-hotspot scope-color" data-axis="MicroscopeZ" style="--x: 45%; --y: 33%;">
+              <strong>MicroscopeZ</strong><small>显微镜上下</small>
+            </button>
+            <button class="axis-hotspot slide-color" data-axis="Z" style="--x: 72%; --y: 50%;">
+              <strong>Z</strong><small>载玻片升降</small>
+            </button>
+            <button class="axis-hotspot adsorb-color" data-axis="X3" style="--x: 24%; --y: 66%;">
+              <strong>X3</strong><small>吸附台左右</small>
+            </button>
+            <button class="axis-hotspot adsorb-color" data-axis="Y3" style="--x: 34%; --y: 58%;">
+              <strong>Y3</strong><small>吸附台前后</small>
+            </button>
+            <button class="axis-hotspot slide-color" data-axis="X2" style="--x: 69%; --y: 60%;">
+              <strong>X2</strong><small>载玻片左右</small>
+            </button>
+            <button class="axis-hotspot slide-color" data-axis="Y2" style="--x: 57%; --y: 54%;">
+              <strong>Y2</strong><small>载玻片前后</small>
+            </button>
+            <button class="axis-hotspot adsorb-color" data-axis="R" style="--x: 39%; --y: 48%;">
+              <strong>R</strong><small>样品旋转</small>
+            </button>
+          </div>
+        </div>
+
+        <section class="axis-group full-row stage-microscope-controls" data-section="microscope">
+          <h3>显微镜调整</h3>
+          <div class="axis-card-list">
+            <article class="axis-card scope-color" data-axis="MicroscopeZ">
+              <div class="axis-card-header">
+                <div class="axis-name">MicroscopeZ</div>
+                <div class="axis-role">显微镜上下位移</div>
+                <div class="axis-pos">pulse 0</div>
+              </div>
+              <div class="axis-motion motion-pad">
+                <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 上" aria-label="MicroscopeZ 连续 上" title="连续 上"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 上</span></button>
+                <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 上" aria-label="MicroscopeZ 点动 上" title="点动 上"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 上</span></button>
+                <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="MicroscopeZ 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 下" aria-label="MicroscopeZ 点动 下" title="点动 下"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 下</span></button>
+                <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 下" aria-label="MicroscopeZ 连续 下" title="连续 下"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 下</span></button>
+              </div>
+              <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+            </article>
+            <div class="objective-selector scope-color" aria-label="显微镜物镜选择预留区">
+              <h4>物镜选择</h4>
+              <div class="objective-buttons">
+                <button class="objective-button" type="button" data-objective-choice data-objective-power="5X" aria-label="选择 5X 物镜">5X</button>
+                <button class="objective-button" type="button" data-objective-choice data-objective-power="10X" aria-label="选择 10X 物镜">10X</button>
+                <button class="objective-button" type="button" data-objective-choice data-objective-power="20X" aria-label="选择 20X 物镜">20X</button>
+                <button class="objective-button" type="button" data-objective-choice data-objective-power="40X" aria-label="选择 40X 物镜">40X</button>
+                <button class="objective-button" type="button" data-objective-choice data-objective-power="50X" aria-label="选择 50X 物镜">50X</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="control-panel">
+        <div class="axis-status-bar">
+          <div class="status" id="status" data-motion-state="off">
+            <span class="status-lamp" aria-hidden="true"></span>
+            <span id="motionStatusText">运动控制未打开 - 预览模式</span>
+          </div>
+        </div>
+        <div class="control-title">
+          <div class="control-title-main">
+            <h2>轴控制面板</h2>
+          </div>
+          <div class="panel-actions">
+            <button class="command primary" data-motion-action="open">打开运动控制</button>
+            <button class="command" data-motion-action="close">关闭运动控制</button>
+            <button class="command warn" data-motion-action="reset">复位</button>
+          </div>
+        </div>
+
+        <div class="control-layout">
+          <section class="axis-group" data-section="adsorption">
+            <h3>吸附台</h3>
+            <div class="axis-card-list">
+              <article class="axis-card adsorb-color" data-axis="X3">
+                <div class="axis-card-header">
+                  <div class="axis-name">X3</div>
+                  <div class="axis-role">吸附台左右移动</div>
+                  <div class="axis-position-editor" data-position-axis="X3" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="X3" value="0.000" inputmode="decimal" aria-label="X3 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="X3">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 左" aria-label="X3 连续 左" title="连续 左"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 左</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 左" aria-label="X3 点动 左" title="点动 左"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 左</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="X3 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 右" aria-label="X3 点动 右" title="点动 右"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 右</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 右" aria-label="X3 连续 右" title="连续 右"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 右</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+              </article>
+              <article class="axis-card adsorb-color" data-axis="Y3">
+                <div class="axis-card-header">
+                  <div class="axis-name">Y3</div>
+                  <div class="axis-role">吸附台前后移动</div>
+                  <div class="axis-position-editor" data-position-axis="Y3" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="Y3" value="0.000" inputmode="decimal" aria-label="Y3 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="Y3">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 后" aria-label="Y3 连续 后" title="连续 后"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 后</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 后" aria-label="Y3 点动 后" title="点动 后"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 后</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="Y3 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 前" aria-label="Y3 点动 前" title="点动 前"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 前</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 前" aria-label="Y3 连续 前" title="连续 前"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 前</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+              </article>
+              <article class="axis-card adsorb-color" data-axis="R">
+                <div class="axis-card-header">
+                  <div class="axis-name">R</div>
+                  <div class="axis-role">样品旋转</div>
+                  <div class="axis-position-editor" data-position-axis="R" data-position-unit="deg">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="R" value="0.000" inputmode="decimal" aria-label="R 当前实际角度"><span>deg</span></label>
+                    <button class="position-popup" type="button" data-position-open="R">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 逆时针" aria-label="R 连续 逆时针" title="连续 逆时针"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 逆时针</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 逆时针" aria-label="R 点动 逆时针" title="点动 逆时针"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 逆时针</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="R 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 顺时针" aria-label="R 点动 顺时针" title="点动 顺时针"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 顺时针</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 顺时针" aria-label="R 连续 顺时针" title="连续 顺时针"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 顺时针</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (deg/s)<input value="20.00"></label><label class="field">步长 (deg)<input value="1.00"></label></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="axis-group" data-section="slide">
+            <h3>载玻片侧</h3>
+            <div class="axis-card-list">
+              <article class="axis-card slide-color" data-axis="X2">
+                <div class="axis-card-header">
+                  <div class="axis-name">X2</div>
+                  <div class="axis-role">载玻片左右移动</div>
+                  <div class="axis-position-editor" data-position-axis="X2" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="X2" value="0.000" inputmode="decimal" aria-label="X2 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="X2">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 左" aria-label="X2 连续 左" title="连续 左"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 左</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 左" aria-label="X2 点动 左" title="点动 左"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 左</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="X2 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 右" aria-label="X2 点动 右" title="点动 右"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 右</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 右" aria-label="X2 连续 右" title="连续 右"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 右</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+              </article>
+              <article class="axis-card slide-color" data-axis="Y2">
+                <div class="axis-card-header">
+                  <div class="axis-name">Y2</div>
+                  <div class="axis-role">载玻片前后移动</div>
+                  <div class="axis-position-editor" data-position-axis="Y2" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="Y2" value="0.000" inputmode="decimal" aria-label="Y2 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="Y2">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 后" aria-label="Y2 连续 后" title="连续 后"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 后</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 后" aria-label="Y2 点动 后" title="点动 后"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 后</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="Y2 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 前" aria-label="Y2 点动 前" title="点动 前"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 前</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 前" aria-label="Y2 连续 前" title="连续 前"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 前</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+              </article>
+              <article class="axis-card slide-color" data-axis="Z">
+                <div class="axis-card-header">
+                  <div class="axis-name">Z</div>
+                  <div class="axis-role">载玻片升降</div>
+                  <div class="axis-position-editor" data-position-axis="Z" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="Z" value="5.000" inputmode="decimal" aria-label="Z 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="Z">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 下" aria-label="Z 连续 下" title="连续 下"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 下</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 下" aria-label="Z 点动 下" title="点动 下"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 下</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="Z 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 上" aria-label="Z 点动 上" title="点动 上"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 上</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 上" aria-label="Z 连续 上" title="连续 上"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 上</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="500"></label></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="axis-group full-row" data-section="overall">
+            <h3>整体位移</h3>
+            <div class="axis-card-list">
+              <article class="axis-card stage-color" data-axis="X1">
+                <div class="axis-card-header">
+                  <div class="axis-name">X1</div>
+                  <div class="axis-role">整体左右平移</div>
+                  <div class="axis-position-editor" data-position-axis="X1" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="X1" value="50.000" inputmode="decimal" aria-label="X1 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="X1">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 左" aria-label="X1 连续 左" title="连续 左"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 左</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 左" aria-label="X1 点动 左" title="点动 左"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 左</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="X1 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 右" aria-label="X1 点动 右" title="点动 右"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 右</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 右" aria-label="X1 连续 右" title="连续 右"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 右</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="1000"></label></div>
+              </article>
+              <article class="axis-card stage-color" data-axis="Y1">
+                <div class="axis-card-header">
+                  <div class="axis-name">Y1</div>
+                  <div class="axis-role">整体前后平移</div>
+                  <div class="axis-position-editor" data-position-axis="Y1" data-position-unit="mm">
+                    <label class="position-value"><input class="axis-position-input" data-position-input="Y1" value="25.000" inputmode="decimal" aria-label="Y1 当前实际位置"><span>mm</span></label>
+                    <button class="position-popup" type="button" data-position-open="Y1">设定</button>
+                  </div>
+                </div>
+                <div class="axis-motion motion-pad">
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 后" aria-label="Y1 连续 后" title="连续 后"><span class="motion-symbol motion-symbol-continuous-negative" aria-hidden="true"></span><span class="motion-label">连续 后</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 后" aria-label="Y1 点动 后" title="点动 后"><span class="motion-symbol motion-symbol-jog-negative" aria-hidden="true"></span><span class="motion-label">点动 后</span></button>
+                  <button class="motion-btn motion-stop" type="button" data-motion-mode="stop" data-motion-label="停止" aria-label="Y1 停止" title="停止"><span class="motion-symbol motion-symbol-stop" aria-hidden="true"></span><span class="motion-label">停止</span></button>
+                  <button class="motion-btn motion-jog" type="button" data-motion-mode="jog" data-motion-label="点动 前" aria-label="Y1 点动 前" title="点动 前"><span class="motion-symbol motion-symbol-jog-positive" aria-hidden="true"></span><span class="motion-label">点动 前</span></button>
+                  <button class="motion-btn motion-continuous" type="button" data-motion-mode="continuous" data-motion-label="连续 前" aria-label="Y1 连续 前" title="连续 前"><span class="motion-symbol motion-symbol-continuous-positive" aria-hidden="true"></span><span class="motion-label">连续 前</span></button>
+                </div>
+                <div class="axis-settings"><label class="field">速度 (um/s)<input value="20.00"></label><label class="field">步长 (um)<input value="1000"></label></div>
+              </article>
+            </div>
+          </section>
+
+        </div>
+      </aside>
+
+      <aside class="temperature-panel">
+        <div class="temperature-title">
+          <h2>温度控制</h2>
+          <span>RD105 Preview</span>
+        </div>
+        <div class="temperature-card-list">
+          <section class="temperature-card" data-temperature-section="connection">
+            <h3>连接</h3>
+            <div class="temperature-grid">
+              <label>COM 端口</label>
+              <select aria-label="温控 COM 端口">
+                <option>COM5</option>
+                <option>COM1</option>
+                <option>COM2</option>
+              </select>
+              <button class="temperature-button" type="button" data-temperature-action="refresh">刷新端口</button>
+              <button class="temperature-button primary" type="button" data-temperature-action="connect">开始连接</button>
+              <span>连接状态</span>
+              <strong class="temperature-value">等待接入</strong>
+            </div>
+          </section>
+
+          <section class="temperature-card" data-temperature-section="status">
+            <h3>当前状态</h3>
+            <div class="temperature-readout">
+              <span>当前温度<strong class="temperature-value">--.-- °C</strong></span>
+              <span>当前给定<strong class="temperature-value">--.-- °C</strong></span>
+              <span>目标温度<strong class="temperature-value">--.-- °C</strong></span>
+              <span>输出百分比<strong class="temperature-value">-- %</strong></span>
+              <span>控制状态<strong class="temperature-value">等待接入</strong></span>
+              <span>错误码<strong class="temperature-value">--</strong></span>
+            </div>
+          </section>
+
+          <section class="temperature-card" data-temperature-section="control">
+            <h3>控制</h3>
+            <div class="temperature-grid">
+              <label>目标温度 (°C)</label>
+              <input value="25.00" inputmode="decimal" aria-label="温控目标温度">
+              <button class="temperature-button primary" type="button" data-temperature-action="fast">快速设温</button>
+              <button class="temperature-button" type="button" data-temperature-action="ramp">按速率升温</button>
+              <label>升温速率 (°C/小时)</label>
+              <input value="10.0" inputmode="decimal" aria-label="温控升温速率">
+              <span>自动 PID 档</span>
+              <strong class="temperature-value">未选择</strong>
+              <button class="temperature-button danger temperature-wide" type="button" data-temperature-action="stop">关闭输出</button>
+            </div>
+          </section>
+
+          <section class="temperature-card" data-temperature-section="plot">
+            <h3>温度曲线</h3>
+            <div class="temperature-plot-placeholder">曲线显示区待接入</div>
+          </section>
+        </div>
+        <div class="temperature-status" id="temperatureStatusText">温控 GUI 已预留，未连接 RD105</div>
+      </aside>
+    </section>
+  </main>
+
+  <dialog class="position-dialog" id="positionDialog" aria-labelledby="positionDialogTitle">
+    <form class="position-dialog-panel" method="dialog">
+      <div class="position-dialog-header">
+        <h2 id="positionDialogTitle">位置标定</h2>
+        <span id="positionDialogAxis">X1</span>
+      </div>
+      <label class="position-dialog-field">
+        目前位置
+        <div class="position-dialog-input-row">
+          <input id="positionDialogCurrentInput" inputmode="decimal">
+          <span class="position-dialog-unit" id="positionDialogCurrentUnit">mm</span>
+        </div>
+      </label>
+      <label class="position-dialog-field">
+        实际位置
+        <div class="position-dialog-input-row">
+          <input id="positionDialogActualInput" inputmode="decimal">
+          <span class="position-dialog-unit" id="positionDialogActualUnit">mm</span>
+        </div>
+      </label>
+      <div class="position-dialog-actions">
+        <button class="command" type="button" id="positionDialogCancel">取消</button>
+        <button class="command primary" type="button" id="positionDialogApply">应用</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const linked = document.querySelectorAll('[data-axis]');
+    const motionStatus = document.getElementById('status');
+    const motionStatusText = document.getElementById('motionStatusText');
+    const temperatureStatusText = document.getElementById('temperatureStatusText');
+    const positionDialog = document.getElementById('positionDialog');
+    const positionDialogAxis = document.getElementById('positionDialogAxis');
+    const positionDialogCurrentInput = document.getElementById('positionDialogCurrentInput');
+    const positionDialogActualInput = document.getElementById('positionDialogActualInput');
+    const positionDialogCurrentUnit = document.getElementById('positionDialogCurrentUnit');
+    const positionDialogActualUnit = document.getElementById('positionDialogActualUnit');
+    const positionDialogApply = document.getElementById('positionDialogApply');
+    const positionDialogCancel = document.getElementById('positionDialogCancel');
+    let activePositionInput = null;
+    let activePositionAxis = '';
+    let activePositionUnit = '';
+    const motionMessages = {
+      open: { state: 'on', text: '运动控制已打开 - 预览模式' },
+      close: { state: 'off', text: '运动控制已关闭 - 预览模式' },
+      reset: { state: 'reset', text: '运动控制已复位 - 预览模式' },
+    };
+    const temperatureMessages = {
+      refresh: '温控预览：刷新端口待接入',
+      connect: '温控预览：RD105 连接功能待接入',
+      fast: '温控预览：快速设温功能待接入',
+      ramp: '温控预览：按速率升温功能待接入',
+      stop: '温控预览：关闭输出功能待接入',
+    };
+
+    function setActiveAxis(axis) {
+      linked.forEach((element) => {
+        element.classList.toggle('active-axis', element.dataset.axis === axis);
+      });
+    }
+
+    function clearActiveAxis() {
+      linked.forEach((element) => element.classList.remove('active-axis'));
+    }
+
+    function formatPositionValue(value) {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed.toFixed(3) : value.trim();
+    }
+
+    function openPositionDialog(axis, input) {
+      const editor = input.closest('[data-position-axis]');
+      activePositionInput = input;
+      activePositionAxis = axis;
+      activePositionUnit = editor.dataset.positionUnit;
+      const currentValue = formatPositionValue(input.value);
+      positionDialogAxis.textContent = `${axis} 标定`;
+      positionDialogCurrentInput.value = currentValue;
+      positionDialogActualInput.value = currentValue;
+      positionDialogCurrentUnit.textContent = activePositionUnit;
+      positionDialogActualUnit.textContent = activePositionUnit;
+      positionDialog.showModal();
+      positionDialogActualInput.focus();
+      positionDialogActualInput.select();
+    }
+
+    linked.forEach((element) => {
+      element.addEventListener('mouseenter', () => setActiveAxis(element.dataset.axis));
+      element.addEventListener('focus', () => setActiveAxis(element.dataset.axis));
+      element.addEventListener('mouseleave', clearActiveAxis);
+      element.addEventListener('blur', clearActiveAxis);
+      element.addEventListener('click', () => {
+        setActiveAxis(element.dataset.axis);
+        motionStatusText.textContent = `${element.dataset.axis} 已选中 - 预览模式不执行运动`;
+      });
+    });
+
+    function motionAxisName(button) {
+      return button.closest('[data-axis]')?.dataset.axis || 'Axis';
+    }
+
+    function motionLabel(button) {
+      return button.dataset.motionLabel || button.getAttribute('aria-label') || button.textContent.trim();
+    }
+
+    function handleJog(button) {
+      motionStatusText.textContent = `点动预览：${motionAxisName(button)} ${motionLabel(button)}，移动一个步长，未连接运动卡`;
+    }
+
+    function handleContinuousStart(button) {
+      button.classList.add('is-pressed');
+      motionStatusText.textContent = `连续运动预览：${motionAxisName(button)} ${motionLabel(button)}，按移动速度运动，松开停止`;
+    }
+
+    function handleMotionStop(button) {
+      document.querySelectorAll('.motion-btn.is-pressed').forEach((pressed) => {
+        pressed.classList.remove('is-pressed');
+      });
+      motionStatusText.textContent = `停止预览：${motionAxisName(button)}，未连接运动卡`;
+    }
+
+    function selectObjective(button) {
+      document.querySelectorAll('[data-objective-choice]').forEach((choice) => {
+        choice.classList.toggle('is-selected', choice === button);
+      });
+      motionStatusText.textContent = `物镜选择预览：${button.dataset.objectivePower}，后续接入电动物镜转盘`;
+    }
+
+    document.querySelectorAll('.motion-btn').forEach((button) => {
+      const mode = button.dataset.motionMode;
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      if (mode === 'continuous') {
+        button.addEventListener('pointerdown', (event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          handleContinuousStart(button);
+          button.setPointerCapture?.(event.pointerId);
+        });
+        button.addEventListener('pointerup', () => handleMotionStop(button));
+        button.addEventListener('pointerleave', () => {
+          if (button.classList.contains('is-pressed')) {
+            handleMotionStop(button);
+          }
+        });
+        button.addEventListener('pointercancel', () => handleMotionStop(button));
+      } else if (mode === 'jog') {
+        button.addEventListener('click', () => handleJog(button));
+      } else if (mode === 'stop') {
+        button.addEventListener('click', () => handleMotionStop(button));
+      }
+    });
+
+    document.querySelectorAll('.axis-position-input').forEach((input) => {
+      input.addEventListener('change', () => {
+        input.value = formatPositionValue(input.value);
+      });
+    });
+
+    document.querySelectorAll('[data-objective-choice]').forEach((button) => {
+      button.addEventListener('click', () => selectObjective(button));
+    });
+
+    document.querySelectorAll('[data-position-open]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const axis = button.dataset.positionOpen;
+        const input = document.querySelector(`[data-position-input="${axis}"]`);
+        openPositionDialog(axis, input);
+      });
+    });
+
+    positionDialogApply.addEventListener('click', () => {
+      if (!activePositionInput) {
+        positionDialog.close();
+        return;
+      }
+      const currentFormatted = formatPositionValue(positionDialogCurrentInput.value);
+      const actualFormatted = formatPositionValue(positionDialogActualInput.value);
+      activePositionInput.value = actualFormatted;
+      motionStatusText.textContent = `${activePositionAxis} 标定：目前位置 ${currentFormatted} ${activePositionUnit}，实际位置 ${actualFormatted} ${activePositionUnit}`;
+      positionDialog.close();
+    });
+
+    positionDialogCancel.addEventListener('click', () => {
+      positionDialog.close();
+    });
+
+    document.querySelectorAll('[data-motion-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const config = motionMessages[button.dataset.motionAction];
+        motionStatus.dataset.motionState = config.state;
+        motionStatusText.textContent = config.text;
+      });
+    });
+
+    document.querySelectorAll('[data-temperature-action]').forEach((button) => {
+      button.addEventListener('click', () => {
+        temperatureStatusText.textContent = temperatureMessages[button.dataset.temperatureAction];
+      });
+    });
+  </script>
+</body>
+</html>

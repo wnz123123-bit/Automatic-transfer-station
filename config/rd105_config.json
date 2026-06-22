@@ -1,0 +1,104 @@
+{
+  "last_port": "COM5",
+  "pid_profiles": [
+    {
+      "name": "pid_30c",
+      "min_temp": -200.0,
+      "max_temp": 40.0,
+      "kp": 15134,
+      "ki": 133,
+      "kd": 4109,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_50c",
+      "min_temp": 40.0,
+      "max_temp": 60.0,
+      "kp": 4791,
+      "ki": 133,
+      "kd": 905,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_70c",
+      "min_temp": 60.0,
+      "max_temp": 75.0,
+      "kp": 3629,
+      "ki": 133,
+      "kd": 618,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_80c",
+      "min_temp": 75.0,
+      "max_temp": 85.0,
+      "kp": 2674,
+      "ki": 133,
+      "kd": 402,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_90c",
+      "min_temp": 85.0,
+      "max_temp": 95.0,
+      "kp": 2651,
+      "ki": 133,
+      "kd": 397,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_100c",
+      "min_temp": 95.0,
+      "max_temp": 110.0,
+      "kp": 2475,
+      "ki": 133,
+      "kd": 360,
+      "max_output_duty": 40
+    },
+    {
+      "name": "pid_120c",
+      "min_temp": 110.0,
+      "max_temp": 130.0,
+      "kp": 2620,
+      "ki": 133,
+      "kd": 390,
+      "max_output_duty": 50
+    },
+    {
+      "name": "pid_140c",
+      "min_temp": 130.0,
+      "max_temp": 150.0,
+      "kp": 2666,
+      "ki": 133,
+      "kd": 400,
+      "max_output_duty": 50
+    },
+    {
+      "name": "pid_160c",
+      "min_temp": 150.0,
+      "max_temp": 170.0,
+      "kp": 2942,
+      "ki": 133,
+      "kd": 460,
+      "max_output_duty": 50
+    },
+    {
+      "name": "pid_180c",
+      "min_temp": 170.0,
+      "max_temp": 190.0,
+      "kp": 3140,
+      "ki": 133,
+      "kd": 504,
+      "max_output_duty": 50
+    },
+    {
+      "name": "pid_200c",
+      "min_temp": 190.0,
+      "max_temp": 205.0,
+      "kp": 3935,
+      "ki": 133,
+      "kd": 691,
+      "max_output_duty": 50
+    }
+  ]
+}

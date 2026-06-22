@@ -1,0 +1,35 @@
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime state + rotating logs (machine-specific; the app recreates runtime/ on launch:
+# json_store.atomic_write_json and logging_setup both mkdir it). Calibration/position
+# JSON here is per-machine and must NOT be version-controlled.
+runtime/
+*.log
+*.log.[0-9]*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
