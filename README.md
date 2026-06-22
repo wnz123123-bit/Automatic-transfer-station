@@ -78,7 +78,7 @@ python .\run_transfer_station.py --smoke-exit
 Current baseline:
 
 ```text
-494 passed
+500 passed
 ```
 
 ## Runtime State

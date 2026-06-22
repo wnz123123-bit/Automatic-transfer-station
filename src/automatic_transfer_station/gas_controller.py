@@ -60,6 +60,12 @@ class GasMotionController:
         self.open_mode = open_mode
         self.axis9_degrees_per_pulse = axis9_degrees_per_pulse
         self.axis3_marked_position = 0.0
+        # Per-axis last-committed RELATIVE-step target (pulses). Lets rapid step
+        # presses ACCUMULATE (each press = +1 step, extending the in-flight move)
+        # instead of each press re-reading the moving position and re-targeting a
+        # closer point (which interrupted the move). Reset on any non-step motion
+        # or stop for that axis. See relative_move / _clear_step_target.
+        self._step_targets: dict[int, int] = {}
         self.is_open = False
         self.axis_calibrations = dict(AXIS_CALIBRATIONS)
         self._api_lock = threading.RLock()
@@ -180,6 +186,7 @@ class GasMotionController:
     def close_board(self) -> None:
         if not self.is_open:
             return
+        self._step_targets.clear()
         stop_error: MotionControllerError | None = None
         try:
             self._check(self.api.stop(0xFFFF, 0), "GA_Stop(all)")
@@ -197,6 +204,7 @@ class GasMotionController:
     @_api_locked
     def reset_board(self) -> None:
         self._require_open()
+        self._step_targets.clear()
         self._check(self.api.reset(), "GA_Reset")
         # CP4: GA_Reset may clear the controller's axis-enable / hard-limit-enable
         # state, so re-apply the SAME axis + hard-limit configuration that open_board
@@ -211,21 +219,44 @@ class GasMotionController:
     @_api_locked
     def relative_move(self, axis: int, direction: int, speed: float, step: float) -> None:
         self._require_open()
+        axis = int(axis)
         direction = 1 if direction > 0 else -1
         self._assert_hard_limit_direction_allowed(axis, direction)
         current_position = self._get_prf_pos(axis)
-        target_position = _round_half_up(current_position + (step * direction))
-        if int(axis) == 3:
+        # ACCUMULATE rapid same-direction step presses: if a prior step's target is
+        # still ahead of the axis in THIS direction (i.e. the move hasn't finished and
+        # we're not reversing), step from that committed target so each press adds one
+        # full step (extending the in-flight move) instead of re-targeting a closer
+        # point from the moving position. Otherwise (fresh / completed / reversing)
+        # step from the current position.
+        prev_target = self._step_targets.get(axis)
+        base = current_position
+        if prev_target is not None and (
+            (direction > 0 and prev_target > current_position)
+            or (direction < 0 and prev_target < current_position)
+        ):
+            base = prev_target
+        target_position = _round_half_up(base + (step * direction))
+        if axis == 3:
             # Axis 3 has no soft-range validation (_validate_target is a no-op for it),
             # so apply the same int32 + sanity cap the other axis-3 target paths enforce.
             self._assert_microscope_z_target_in_bounds(target_position)
         self._validate_target(axis, target_position)
+        # Only commit the accumulated target AFTER validation passes, so a refused
+        # (out-of-range) step never advances the baseline for the next press.
+        self._step_targets[axis] = target_position
         self._start_trap_move(axis, target_position, abs(speed), acc=0.1, dec=0.1)
+
+    def _clear_step_target(self, axis: int) -> None:
+        # Any non-step motion or stop on an axis ends its step-accumulation session,
+        # so the next relative step restarts from the live position.
+        self._step_targets.pop(int(axis), None)
 
     @_api_locked
     def move_axis_to_coordinate(self, axis: int, coordinate: float, speed: float | None = None) -> None:
         self._require_open()
         axis = int(axis)
+        self._clear_step_target(axis)  # an absolute move ends step accumulation on this axis
         if not axis_has_absolute_calibration(axis, self.axis_calibrations):
             raise MotionControllerError(
                 f"axis {axis} has no absolute coordinate calibration; cannot move to a coordinate"
@@ -248,6 +279,7 @@ class GasMotionController:
     @_api_locked
     def start_jog(self, axis: int, speed: float, partner_lookahead_pulse: float = 0.0) -> None:
         self._require_open()
+        self._clear_step_target(axis)  # a continuous jog ends step accumulation on this axis
         direction = 1 if speed > 0 else -1
         if speed != 0:
             self._assert_hard_limit_direction_allowed(axis, direction)
@@ -304,11 +336,13 @@ class GasMotionController:
     @_api_locked
     def stop_axis(self, axis: int) -> None:
         self._require_open()
+        self._clear_step_target(axis)
         self._check(self.api.stop(axis_mask(axis), 0), f"GA_Stop({axis})")
 
     @_api_locked
     def stop_all(self) -> None:
         self._require_open()
+        self._step_targets.clear()
         self._check(self.api.stop(0xFFFF, 0), "GA_Stop(all)")
 
     @_api_locked
@@ -350,6 +384,7 @@ class GasMotionController:
     @_api_locked
     def move_axis3_to_position(self, position: float) -> None:
         self._require_open()
+        self._clear_step_target(3)  # a point move ends step accumulation on MicroscopeZ
         axis = 3
         target = int(position)
         self._assert_microscope_z_target_in_bounds(target)

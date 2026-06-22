@@ -2632,9 +2632,14 @@ class MainWindow(QMainWindow):
         # that never sets pending=False is still covered.
         self._arm_position_refresh_watchdog()
         generation = self._position_refresh_generation
+        # Priority 1: just below an e-stop (0) but ABOVE every jog/move (continuous=5,
+        # discrete=10). The reactive safety scan rides on this read, so it must NOT be
+        # starved behind continuous jogs — otherwise an interference/soft-limit is
+        # detected late (axis over-travels) AND the alarm clears late after the operator
+        # backs off. Running it each ~100 ms cycle even mid-motion keeps the scan live.
         submitted = queue.submit(
             lambda generation=generation: (generation, *self._read_positions_from_controller()),
-            priority=100,
+            priority=1,
             kind="position_refresh",
             metadata=generation,
         )
@@ -2761,6 +2766,10 @@ class MainWindow(QMainWindow):
             f"位置读取连续失败 {self._consecutive_read_failures} 次，已保护性停止；"
             "请确认物理急停/硬件限位可用"
         )
+        # Mark the alarm latched so that once reads recover, the next all-safe scan in
+        # _stop_unsafe_axes_if_needed clears the lamp. Without this the read-failure
+        # alarm lamp would stay red after recovery (the clear path is gated on this flag).
+        self._safety_alarm_active = True
         self._set_motion_status(alarm_text, "alarm")
         self.statusBar().showMessage(alarm_text)
         self._attempt_protective_stop_all()

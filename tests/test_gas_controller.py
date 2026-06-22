@@ -282,6 +282,54 @@ class GasMotionControllerTests(unittest.TestCase):
         self.assertIn(("set_position", 2, 95), api.calls)
         self.assertIn(("update", 0b10), api.calls)
 
+    def _set_positions_for_axis(self, api, axis):
+        return [c[2] for c in api.calls if c[0] == "set_position" and c[1] == axis]
+
+    # NOTE: Y1 (axis 2) has zero_coordinate=25, so coordinate = 25 + pulse/12500;
+    # the in-range [0,50] mm window is pulses [-312500, 312500] (pulse 0 = 25 mm).
+    def test_relative_step_accumulates_rapid_same_direction_presses(self):
+        # Pressing again mid-move adds a FULL step (extends the move) instead of
+        # re-targeting a closer point from the moving position.
+        from automatic_transfer_station.gas_controller import GasMotionController
+        api = FakeApi(); api.positions[2] = 0.0
+        controller = GasMotionController(api=api); controller.is_open = True
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # -> 1000
+        api.positions[2] = 300.0                                               # move in progress
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # accumulate -> 2000
+        self.assertEqual([1000, 2000], self._set_positions_for_axis(api, 2))
+
+    def test_relative_step_reverse_direction_restarts_from_current(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+        api = FakeApi(); api.positions[2] = 0.0
+        controller = GasMotionController(api=api); controller.is_open = True
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # -> 1000
+        api.positions[2] = 300.0                                               # in progress
+        controller.relative_move(axis=2, direction=-1, speed=20.0, step=1000)  # reverse: from current -> -700
+        self.assertEqual([1000, -700], self._set_positions_for_axis(api, 2))
+
+    def test_relative_step_baseline_cleared_by_stop(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+        api = FakeApi(); api.positions[2] = 0.0
+        controller = GasMotionController(api=api); controller.is_open = True
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # -> 1000
+        controller.stop_axis(2)                                                # ends accumulation
+        api.positions[2] = 300.0
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # fresh from current -> 1300
+        self.assertEqual([1000, 1300], self._set_positions_for_axis(api, 2))
+
+    def test_relative_step_refused_out_of_range_does_not_advance_baseline(self):
+        from automatic_transfer_station.controller_base import MotionControllerError
+        from automatic_transfer_station.gas_controller import GasMotionController
+        api = FakeApi(); api.positions[2] = 300000.0   # 49 mm, near Y1 +max (50 mm = 312500 pulse)
+        controller = GasMotionController(api=api); controller.is_open = True
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # -> 301000 (in range)
+        with self.assertRaises(MotionControllerError):
+            controller.relative_move(axis=2, direction=1, speed=20.0, step=200000)  # 501000 -> out of range
+        api.positions[2] = 300500.0
+        controller.relative_move(axis=2, direction=1, speed=20.0, step=1000)   # accumulate from 301000 -> 302000
+        # The refused step never reached set_position and never advanced the baseline.
+        self.assertEqual([301000, 302000], self._set_positions_for_axis(api, 2))
+
     def test_relative_move_rejects_targets_outside_calibrated_soft_range(self):
         from automatic_transfer_station.controller_base import MotionControllerError
         from automatic_transfer_station.gas_controller import GasMotionController

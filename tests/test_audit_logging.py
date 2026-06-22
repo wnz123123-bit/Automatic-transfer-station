@@ -364,6 +364,42 @@ class TestMotionAuditLogging(unittest.TestCase):
         levels = [r.levelno for r in cm.records]
         self.assertTrue(any(lvl >= logging.WARNING for lvl in levels))
 
+    def test_position_refresh_read_runs_above_jog_priority(self):
+        # The safety-scan read must outrank jogs (continuous=5, discrete=10) so it is
+        # not starved during continuous motion — otherwise limits trip late and the
+        # alarm clears late. It must stay below an e-stop (0).
+        ctrl = RecordingController(); ctrl.is_open = True
+        window = self._make_window(controller=ctrl)
+        captured = {}
+
+        class _Q:
+            def submit(self, fn, priority=0, kind=None, metadata=None):
+                captured["priority"] = priority
+                captured["kind"] = kind
+                return True
+
+        window._active_motion_queue = lambda: _Q()
+        window._position_refresh_pending = False
+        window._request_async_position_refresh()
+        self.assertEqual("position_refresh", captured.get("kind"))
+        self.assertLess(captured["priority"], 5)    # above continuous jog
+        self.assertGreater(captured["priority"], 0)  # below e-stop
+
+    def test_read_failure_alarm_clears_after_reads_recover(self):
+        # The consecutive-read-failure protective alarm latches _safety_alarm_active so
+        # that once reads recover, the next all-safe scan clears the alarm lamp.
+        ctrl = RecordingController(); ctrl.is_open = True
+        window = self._make_window(controller=ctrl)
+        gen = window._position_refresh_generation
+        for _ in range(window.CONSECUTIVE_READ_FAILURE_LIMIT):
+            window._handle_async_position_refresh_failure((gen, "read error"))
+        self.assertTrue(window._safety_alarm_active, "read-failure fail-safe must latch the alarm")
+        # Each axis at its zero pulse (in range); X2/X3 sum is safe -> check.ok -> clears.
+        safe = {1: 0.0, 2: 0.0, 3: 0.0, 4: -168494.0, 5: 687898.0,
+                6: -250000.0, 7: 131790.0, 8: -85000.0, 9: 0.0}
+        window._stop_unsafe_axes_if_needed(safe)
+        self.assertFalse(window._safety_alarm_active, "alarm must clear once reads recover and all axes are safe")
+
     def test_gamepad_stop_all_logs_critical_on_failure(self):
         """When gamepad stop_all raises MotionControllerError, CRITICAL must be logged."""
         ctrl = FailingStopController()
