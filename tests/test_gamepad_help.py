@@ -18,7 +18,7 @@ class F710HelpSvgTests(unittest.TestCase):
         # Must parse as XML and be a single <svg> root with a viewBox.
         doc = minidom.parseString(self.svg)
         self.assertEqual(doc.documentElement.tagName, "svg")
-        self.assertEqual(doc.documentElement.getAttribute("viewBox"), "0 0 1000 600")
+        self.assertEqual(doc.documentElement.getAttribute("viewBox"), "0 0 1000 700")
 
     def test_names_every_control(self):
         for token in ("START", "BACK", "LT", "RT", "LB", "RB", "MODE",

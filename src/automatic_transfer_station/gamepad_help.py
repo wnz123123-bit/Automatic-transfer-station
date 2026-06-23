@@ -69,76 +69,81 @@ def _callout(label_x, label_y, anchor, name, desc, leader_from, leader_to, *, na
 def build_f710_help_svg() -> str:
     """Return the standalone F710 button-mapping help as an SVG string."""
     p: list[str] = []
-    p.append('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" width="1000" height="600">')
+    p.append('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="1000" height="700">')
 
     # Card background (keeps the figure legible regardless of dialog theme).
-    p.append('<rect x="0" y="0" width="1000" height="600" rx="14" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>')
+    p.append('<rect x="0" y="0" width="1000" height="700" rx="14" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>')
 
     # Header.
-    p.append(_text(30, 42, "Logitech F710 手柄按键说明", size=22, weight="700"))
-    p.append(_text(30, 66, "MODE 拨到 X · 摇杆推得越多越快（比例速度）", size=14, fill=_SUB))
+    p.append(_text(30, 40, "Logitech F710 手柄按键说明", size=22, weight="700"))
+    p.append(_text(30, 63, "MODE 拨到 X · 摇杆推得越多越快（比例速度）", size=14, fill=_SUB))
 
-    # ---- Controller body ----------------------------------------------------
-    # Grips drawn first so the body overlaps their tops.
-    p.append(f'<ellipse cx="415" cy="378" rx="44" ry="82" transform="rotate(-17 415 378)" '
+    # Two views, matching the official layout: a top view for the face controls
+    # and a front view for the shoulder buttons + MODE (which live on the front
+    # edge and cannot be placed unambiguously on a top-down drawing).
+    p.append(_text(40, 98, "俯视图（正面）", size=15, weight="700", fill=_SUB))
+    p.append(_text(40, 410, "前视图（肩键 / 扳机一侧）", size=15, weight="700", fill=_SUB))
+
+    _top_view(p)
+    _front_view(p)
+
+    # Footer notes.
+    p.append(_text(500, 650, "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）",
+                   size=13, anchor="middle", fill=_SUB))
+    p.append(_text(500, 674, "当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停",
+                   size=13, anchor="middle", fill=_SUB))
+
+    p.append('</svg>')
+    return "".join(p)
+
+
+def _top_view(p: list[str]) -> None:
+    """Top-down view: D-pad, dual sticks, Y/A/X/B diamond, BACK/START."""
+    # Grips first so the body overlaps their tops.
+    p.append(f'<ellipse cx="415" cy="298" rx="44" ry="76" transform="rotate(-17 415 298)" '
              f'fill="{_BODY2}" stroke="{_EDGE}" stroke-width="2"/>')
-    p.append(f'<ellipse cx="585" cy="378" rx="44" ry="82" transform="rotate(17 585 378)" '
+    p.append(f'<ellipse cx="585" cy="298" rx="44" ry="76" transform="rotate(17 585 298)" '
              f'fill="{_BODY2}" stroke="{_EDGE}" stroke-width="2"/>')
-    # Shoulder bumpers (LB/RB) and triggers (LT/RT) peeking above the body top.
-    p.append(f'<rect x="406" y="189" width="50" height="18" rx="7" fill="{_TRIGGER}" stroke="{_EDGE}" stroke-width="1.5"/>')
-    p.append(f'<rect x="544" y="189" width="50" height="18" rx="7" fill="{_TRIGGER}" stroke="{_EDGE}" stroke-width="1.5"/>')
-    p.append(f'<rect x="398" y="206" width="66" height="21" rx="9" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="1.5"/>')
-    p.append(f'<rect x="536" y="206" width="66" height="21" rx="9" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="1.5"/>')
-    p.append(_text(431, 202, "LT", size=11, weight="700", anchor="middle", fill="#ffffff"))
-    p.append(_text(569, 202, "RT", size=11, weight="700", anchor="middle", fill="#ffffff"))
-    p.append(_text(431, 221, "LB", size=11, weight="700", anchor="middle", fill="#33404e"))
-    p.append(_text(569, 221, "RB", size=11, weight="700", anchor="middle", fill="#33404e"))
+    # Shoulder bumpers as a subtle hint at the top edge (named in the front view).
+    p.append(f'<rect x="400" y="134" width="64" height="16" rx="8" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="1.5"/>')
+    p.append(f'<rect x="536" y="134" width="64" height="16" rx="8" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="1.5"/>')
     # Main body.
-    p.append(f'<rect x="380" y="220" width="240" height="122" rx="48" fill="{_BODY}" stroke="{_EDGE}" stroke-width="2.5"/>')
+    p.append(f'<rect x="380" y="150" width="240" height="116" rx="46" fill="{_BODY}" stroke="{_EDGE}" stroke-width="2.5"/>')
 
     # D-pad (upper-left).
-    p.append(f'<rect x="430" y="250" width="16" height="44" rx="4" fill="{_DARK}"/>')
-    p.append(f'<rect x="416" y="264" width="44" height="16" rx="4" fill="{_DARK}"/>')
-    p.append(f'<circle cx="438" cy="272" r="5" fill="#444d58"/>')
+    p.append(f'<rect x="432" y="178" width="16" height="40" rx="4" fill="{_DARK}"/>')
+    p.append(f'<rect x="418" y="190" width="44" height="16" rx="4" fill="{_DARK}"/>')
+    p.append(f'<circle cx="440" cy="198" r="5" fill="#444d58"/>')
 
     # Analog sticks.
-    for sx in (462, 552):
-        p.append(f'<circle cx="{sx}" cy="326" r="25" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="2"/>')
-        p.append(f'<circle cx="{sx}" cy="326" r="15" fill="#39424e"/>')
-        p.append(f'<circle cx="{sx - 4}" cy="322" r="4" fill="#5a646f"/>')
+    for sx in (464, 552):
+        p.append(f'<circle cx="{sx}" cy="248" r="24" fill="{_SHOULDER}" stroke="{_EDGE}" stroke-width="2"/>')
+        p.append(f'<circle cx="{sx}" cy="248" r="14" fill="#39424e"/>')
+        p.append(f'<circle cx="{sx - 4}" cy="244" r="4" fill="#5a646f"/>')
 
     # Face-button diamond (Y top, A bottom, X left, B right).
-    for cx, cy, col, lbl in ((566, 244, _COL_Y, "Y"), (566, 288, _COL_A, "A"),
-                             (542, 266, _COL_X, "X"), (590, 266, _COL_B, "B")):
-        p.append(f'<circle cx="{cx}" cy="{cy}" r="14" fill="{col}"/>')
-        p.append(_text(cx, cy + 5, lbl, size=15, weight="700", anchor="middle", fill="#ffffff"))
+    for cx, cy, col, lbl in ((568, 174, _COL_Y, "Y"), (568, 214, _COL_A, "A"),
+                             (546, 194, _COL_X, "X"), (590, 194, _COL_B, "B")):
+        p.append(f'<circle cx="{cx}" cy="{cy}" r="13" fill="{col}"/>')
+        p.append(_text(cx, cy + 5, lbl, size=14, weight="700", anchor="middle", fill="#ffffff"))
 
-    # Centre buttons: BACK, logo, START, MODE.
-    p.append(f'<circle cx="500" cy="258" r="10" fill="#707a86"/>')
-    p.append(f'<rect x="464" y="245" width="20" height="10" rx="4" fill="{_EDGE}"/>')   # BACK
-    p.append(f'<rect x="516" y="245" width="20" height="10" rx="4" fill="{_EDGE}"/>')   # START
-    p.append(f'<rect x="490" y="281" width="20" height="10" rx="4" fill="{_EDGE}"/>')   # MODE
+    # Centre buttons: BACK, logo, START (MODE is on the front edge -> front view).
+    p.append(f'<circle cx="500" cy="186" r="9" fill="#707a86"/>')
+    p.append(f'<rect x="466" y="181" width="18" height="9" rx="4" fill="{_EDGE}"/>')   # BACK
+    p.append(f'<rect x="516" y="181" width="18" height="9" rx="4" fill="{_EDGE}"/>')   # START
 
-    # ---- Callouts -----------------------------------------------------------
-    # Top shoulders.
-    p.append(_callout(360, 138, "end", "LT", ["显微镜Z ↓", "轻按单步 · 长按连续 ≤4mm/s"], (368, 132), (420, 197)))
-    p.append(_callout(300, 168, "end", "LB", ["载玻片Z ↓ （轻按单步 · 长按连续）"], (308, 162), (412, 216)))
-    p.append(_callout(640, 138, "start", "RT", ["显微镜Z ↑", "轻按单步 · 长按连续 ≤4mm/s"], (632, 132), (580, 197)))
-    p.append(_callout(700, 168, "start", "RB", ["载玻片Z ↑ （轻按单步 · 长按连续）"], (692, 162), (588, 216)))
+    # Callouts.
+    p.append(_callout(250, 128, "end", "BACK", ["急停（所有轴立即停止）"], (258, 122), (466, 185)))
+    p.append(_callout(250, 196, "end", "十字键",
+                      ["↑ / ↓  选中轴 单步 ±", "← / →  步长档 减小 / 增大"],
+                      (258, 190), (418, 198)))
+    p.append(_callout(250, 280, "end", "左摇杆", ["X3（左右）/ Y3（前后） 连续"], (258, 274), (440, 248)))
 
-    # Left column.
-    p.append(_callout(250, 250, "end", "BACK", ["急停（所有轴立即停止）"], (258, 244), (474, 250)))
-    p.append(_callout(250, 322, "end", "十字键",
-                      ["↑ / ↓  选中轴 单步 ± （仅单步）", "← / →  步长档 减小 / 增大"],
-                      (258, 316), (416, 272)))
-    p.append(_callout(250, 410, "end", "左摇杆", ["X3（左右）/ Y3（前后） 连续"], (258, 404), (438, 326)))
-
-    # Right column.
-    p.append(_callout(750, 250, "start", "START", ["启用 / 停用手柄"], (742, 244), (526, 250)))
+    p.append(_callout(750, 128, "start", "START", ["启用 / 停用手柄"], (742, 122), (534, 185)))
     # Face-button callout with coloured Y/A/X/B chips on the name line.
-    p.append(_leader(742, 320, 590, 266))
-    face_name = (
-        f'<text x="750" y="320" font-family="{_FONT}" font-size="16" font-weight="700" text-anchor="start">'
+    p.append(_leader(742, 190, 590, 194))
+    p.append(
+        f'<text x="750" y="196" font-family="{_FONT}" font-size="16" font-weight="700" text-anchor="start">'
         f'<tspan fill="{_INK}">面键 </tspan>'
         f'<tspan fill="{_COL_Y}">Y</tspan><tspan fill="{_INK}">/</tspan>'
         f'<tspan fill="{_COL_A}">A</tspan><tspan fill="{_INK}">/</tspan>'
@@ -146,24 +151,41 @@ def build_f710_help_svg() -> str:
         f'<tspan fill="{_COL_B}">B</tspan>'
         f'</text>'
     )
-    p.append(face_name)
-    p.append(_text(750, 338, "选轴：Y=上  A=下  X=左  B=右", size=13, fill=_SUB))
-    p.append(_callout(750, 410, "start", "右摇杆", ["X2（左右）/ Y2（前后） 连续"], (742, 404), (576, 326)))
+    p.append(_text(750, 214, "选轴：Y=上  A=下  X=左  B=右", size=13, fill=_SUB))
+    p.append(_callout(750, 280, "start", "右摇杆", ["X2（左右）/ Y2（前后） 连续"], (742, 274), (576, 248)))
 
-    # MODE: on the front face, in the centre cluster (just below BACK/logo/START).
-    # A short leader keeps the label tied to its real centre position rather than
-    # appearing to sit at the front edge of the pad.
-    p.append(_leader(500, 291, 500, 348))
-    p.append(_text(500, 368, "MODE 拨到 X 模式", size=13, weight="700", anchor="middle"))
 
-    # Footer notes.
-    p.append(_text(500, 520, "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）",
-                   size=13, anchor="middle", fill=_SUB))
-    p.append(_text(500, 542, "当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停",
-                   size=13, anchor="middle", fill=_SUB))
+def _front_view(p: list[str]) -> None:
+    """Front view (the edge with the shoulder buttons): LB/LT, RB/RT and the
+    MODE button dead-centre on the front edge."""
+    dark = "#2c3138"
+    # Grips (front-on, foreshortened) first.
+    p.append(f'<ellipse cx="362" cy="548" rx="33" ry="40" fill="{dark}"/>')
+    p.append(f'<ellipse cx="638" cy="548" rx="33" ry="40" fill="{dark}"/>')
+    # Silver top edge + dark front face.
+    p.append('<rect x="338" y="456" width="324" height="15" rx="7" fill="#cdd5df"/>')
+    p.append(f'<rect x="338" y="469" width="324" height="66" rx="26" fill="{dark}" stroke="#1b1f24" stroke-width="2"/>')
+    # Bumpers (LB/RB) on top of the front face.
+    p.append('<rect x="368" y="447" width="62" height="19" rx="8" fill="#3a4049" stroke="#1b1f24" stroke-width="1.5"/>')
+    p.append('<rect x="570" y="447" width="62" height="19" rx="8" fill="#3a4049" stroke="#1b1f24" stroke-width="1.5"/>')
+    p.append(_text(399, 461, "LB", size=11, weight="700", anchor="middle", fill="#ffffff"))
+    p.append(_text(601, 461, "RB", size=11, weight="700", anchor="middle", fill="#ffffff"))
+    # Triggers (LT/RT) as paddles below the bumpers.
+    p.append('<rect x="376" y="495" width="54" height="30" rx="12" fill="#1c2126" stroke="#11151a" stroke-width="1.5"/>')
+    p.append('<rect x="570" y="495" width="54" height="30" rx="12" fill="#1c2126" stroke="#11151a" stroke-width="1.5"/>')
+    p.append(_text(403, 514, "LT", size=11, weight="700", anchor="middle", fill="#ffffff"))
+    p.append(_text(597, 514, "RT", size=11, weight="700", anchor="middle", fill="#ffffff"))
+    # MODE button: centre of the front edge.
+    p.append('<circle cx="500" cy="500" r="12" fill="#4a515a" stroke="#cdd5df" stroke-width="2"/>')
+    p.append(f'<circle cx="500" cy="500" r="3" fill="{dark}"/>')
 
-    p.append('</svg>')
-    return "".join(p)
+    # Callouts.
+    p.append(_callout(250, 452, "end", "LB", ["载玻片Z 下"], (258, 452), (368, 456)))
+    p.append(_callout(250, 512, "end", "LT", ["显微镜Z 下", "轻按单步 · 长按连续 ≤4mm/s"], (258, 512), (376, 510)))
+    p.append(_callout(750, 452, "start", "RB", ["载玻片Z 上"], (742, 452), (632, 456)))
+    p.append(_callout(750, 512, "start", "RT", ["显微镜Z 上", "轻按单步 · 长按连续 ≤4mm/s"], (742, 512), (624, 510)))
+    p.append(_leader(500, 512, 500, 578))
+    p.append(_text(500, 599, "MODE 拨到 X 模式", size=15, weight="700", anchor="middle"))
 
 
 def render_help_pixmap(scale: float = 2.0):
