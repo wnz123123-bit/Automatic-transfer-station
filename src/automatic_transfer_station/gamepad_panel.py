@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QGroupBox, QHBoxLayout, QLabel, QScrollArea,
+    QPushButton, QVBoxLayout,
+)
 
 from .gamepad_controller import (
     GamepadController, StartContinuous, UpdateContinuous, StopContinuous,
     Jog, SelectAxis, StepDelta, StopAll, ToggleEnable, SELECTOR_AXES, GAMEPAD_AXES,
 )
+from .gamepad_help import render_help_pixmap
 from .gamepad_xinput import load_default_reader
 
 
@@ -86,7 +90,35 @@ class GamepadPanel(QGroupBox):
         self._refresh_hud()
 
     def _show_mapping_help(self):
-        QMessageBox.information(self, "手柄按键说明", GAMEPAD_MAPPING_TEXT)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("手柄按键说明 (Logitech F710)")
+        layout = QVBoxLayout(dlg)
+
+        image = QLabel()
+        image.setAlignment(Qt.AlignCenter)
+        # The full text is kept as the accessible description so screen readers
+        # and assistive tooling still expose the mapping behind the figure.
+        image.setAccessibleDescription(GAMEPAD_MAPPING_TEXT)
+        try:
+            image.setPixmap(render_help_pixmap())
+        except Exception:
+            # No Qt SVG module (or render failure): fall back to legible text.
+            image.setPixmap(None)
+            image.setText(GAMEPAD_MAPPING_TEXT)
+            image.setWordWrap(True)
+            image.setStyleSheet("QLabel{color:#111a22;background:#ffffff;padding:14px;}")
+
+        scroll = QScrollArea(dlg)
+        scroll.setWidget(image)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok, dlg)
+        buttons.accepted.connect(dlg.accept)
+        layout.addWidget(buttons)
+
+        dlg.resize(1040, 680)
+        dlg.exec()
 
     def _reg(self, name, w):
         w.setObjectName(name)

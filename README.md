@@ -64,7 +64,7 @@ python .\run_transfer_station.py --no-gamepad
 
 If the XInput DLL fails to load the program still starts normally (a message is printed to stderr and gamepad support is silently disabled).
 
-Quick button mapping (2026-06-22 remap): left stick = X3/Y3 continuous; right stick = X2/Y2 continuous; LT/RT = MicroscopeZ (step/hold); LB/RB = Z (step/hold); D-pad up/down = single-step jog of the selected axis (step only, no continuous); D-pad left/right = step-size down/up; face buttons Y/A/X/B = 2D directional axis selection (up/down/left/right by the GUI axis-card grid layout) among X3/Y3/X2/Y2/R/Z/X1/Y1 (MicroscopeZ stays on the triggers); START = enable/disable gamepad; BACK = stop all (bypasses queue). The selected axis shows on a stage-map banner (word-wrapped, clamped to the image) with its live step size and coordinate. Press ? in the gamepad panel to view the full button mapping; the global Space key is an emergency stop shortcut.
+Quick button mapping (2026-06-22 remap): left stick = X3/Y3 continuous; right stick = X2/Y2 continuous; LT/RT = MicroscopeZ (step/hold); LB/RB = Z (step/hold); D-pad up/down = single-step jog of the selected axis (step only, no continuous); D-pad left/right = step-size down/up; face buttons Y/A/X/B = 2D directional axis selection (up/down/left/right by the GUI axis-card grid layout) among X3/Y3/X2/Y2/R/Z/X1/Y1 (MicroscopeZ stays on the triggers); START = enable/disable gamepad; BACK = stop all (bypasses queue). The selected axis shows on a stage-map banner (word-wrapped, clamped to the image) with its live step size and coordinate. Press ? in the gamepad panel to view a labelled Logitech F710 diagram of the full button mapping; the global Space key is an emergency stop shortcut.
 
 The default real mode does not connect at startup. The program connects to the motion card only after clicking `打开运动控制`.
 
@@ -78,7 +78,7 @@ python .\run_transfer_station.py --smoke-exit
 Current baseline:
 
 ```text
-500 passed
+505 passed
 ```
 
 ## Runtime State
