@@ -8,10 +8,20 @@ sys.path.insert(0, str(SRC))
 
 from automatic_transfer_station.gamepad_xinput import GamepadSnapshot, BUTTON
 
+_QT_APP = None
+
 
 def get_app():
+    global _QT_APP
     from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
+    app = QApplication.instance()
+    if app is None:
+        _QT_APP = QApplication([])
+        app = _QT_APP
+    elif _QT_APP is None:
+        _QT_APP = app
+    app.setQuitOnLastWindowClosed(False)
+    return app
 
 
 def snap(**kw):
@@ -87,6 +97,22 @@ class GamepadPanelTests(unittest.TestCase):
         panel, _ = self._panel(reader, clk, ctrl)
         panel.tick(); panel.tick()
         self.assertIn(("stop_all",), ctrl.calls)
+
+    def test_stop_all_runtime_error_is_logged(self):
+        class ExplodingStopController(RecMotion):
+            def stop_all(self):
+                raise RuntimeError("raw stop failure")
+
+        clk = Clk()
+        ctrl = ExplodingStopController()
+        reader = ScriptedReader([snap(buttons=BUTTON["START"]), snap(buttons=BUTTON["BACK"])])
+        panel, _ = self._panel(reader, clk, ctrl)
+
+        panel.tick()
+        with self.assertLogs("ats.audit", level="CRITICAL") as cm:
+            panel.tick()
+
+        self.assertIn("raw stop failure", "\n".join(cm.output))
 
     def test_jog_uses_relative_move_with_gui_step(self):
         clk = Clk(); ctrl = RecMotion()

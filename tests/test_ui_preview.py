@@ -153,13 +153,15 @@ class UiPreviewTests(unittest.TestCase):
             "开始连接",
             "当前温度",
             "目标温度",
-            "输出百分比",
+            "输出 (PWM)",
+            "最大输出占空比",
             "快速设温",
             "按速率升温",
             "关闭输出",
             "温度曲线",
         ):
             self.assertIn(text, html)
+        self.assertNotIn("自动 PID 档", html)
         self.assertIn("data-temperature-action", html)
         self.assertIn("temperatureStatusText", html)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 
 from PySide6.QtCore import Qt, QTimer
@@ -14,6 +15,8 @@ from .gamepad_controller import (
 )
 from .gamepad_help import render_help_pixmap
 from .gamepad_xinput import load_default_reader
+
+_audit = logging.getLogger("ats.audit")
 
 
 # Full F710 (XInput) mapping, shown in-UI via the "?" help button so the operator
@@ -159,8 +162,8 @@ class GamepadPanel(QGroupBox):
             self._invalidate_axis(ax)
         try:
             self._stop_all()
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - timer path must stay alive
+            _audit.critical("gamepad stop_all failed: %s", exc, exc_info=True)
 
     def tick(self):
         snap = self._reader.read_state()

@@ -92,7 +92,7 @@ python .\run_transfer_station.py --smoke-exit
 当前验证基线：
 
 ```text
-505 passed
+510 passed
 ```
 
 如果只是验证运动控制核心：
@@ -391,6 +391,8 @@ RD105 控温参数由 PID 和最大输出占空比共同组成，完整表保存
 
 当前软件允许的最高目标温度为 `205.0 °C`。目标温度高于该值会被拒绝；实时读数高于该值或读数无效时，会取消 Python 软件斜坡并尝试关闭输出。若关闭输出失败，GUI 状态必须显示“关闭输出失败”，不能误报为已经关闭。
 
+RD105 连接断开和程序退出都会提交后台 `disconnect()`（先关输出 ENABLE=0 再关串口）。**断开按钮**路径不阻塞 GUI；**程序退出关窗**会对关加热器做**有界等待**（`HEATER_OFF_CLOSE_TIMEOUT_MS`，3 s），让 ENABLE=0 有确定性机会送达控制器后再退出，串口卡死则到点脱钩、不无限挂。RD105 是独立硬件控制器，PC 不发 ENABLE=0 它会按原设定继续加热，所以关窗必须给"关加热器"留确定性机会，而不是只提交后台任务就退出。
+
 按速率控温由 Python 逻辑实现：先以当前温度作为起点写入 TG，然后按目标温度和速率逐步推进小目标。推进过程中如果 TG 写入失败，`rd105_controller.py` 会取消软件斜坡，并通过 snapshot 的 `control_error` 字段让 `temperature_panel.py` 显示控温错误。
 
 ### 物镜切换到位判定与串口诊断（LV-NCNT2）
@@ -483,7 +485,7 @@ python -m automatic_transfer_station.gas_network_probe --ip 192.168.0.200 --mode
 
 > 本节按主题罗列遗留项的背景与详情；**硬件就绪后请直接按 §12「真机验收清单」逐条勾选执行**——那是把本节所有真机/SDK 待确认项汇总后的可操作单。
 
-- RD105 温控 GUI 已集成，但实时曲线和 PID 自动档位仍可继续完善。
+- RD105 温控 GUI 已集成；实时曲线仍可继续完善。PID 和最大输出占空比表已作为默认控温参数内置，不在 GUI 中展开显示。
 - LV-NCNT2 物镜切换协议已实现，需要在真实串口上最终确认端口、波特率和物镜孔位。
 - 真实硬件上，安全修复后的 `GA_GetSts` 硬限位拦截建议再做一次小步长验证。
 
@@ -530,7 +532,7 @@ python -m automatic_transfer_station.gas_network_probe --ip 192.168.0.200 --mode
 
 ## 12. 真机验收清单（硬件就绪后逐条执行）
 
-本清单把三轮代码+GUI 审查（主审 / 盲点 / 运动核心）后**所有只能在真实硬件/真实操作场景中确认**的遗留项，汇总成一份可逐条勾选的验收单。代码侧能修的都已修复并通过 505 项自动化测试；下面这些**必须上真机验证**，因为它们依赖 GAS.dll/串口/手柄的真实行为或 SDK 未文档化的语义。
+本清单把三轮代码+GUI 审查（主审 / 盲点 / 运动核心）后**所有只能在真实硬件/真实操作场景中确认**的遗留项，汇总成一份可逐条勾选的验收单。代码侧能修的都已修复并通过 510 项自动化测试；下面这些**必须上真机验证**，因为它们依赖 GAS.dll/串口/手柄的真实行为或 SDK 未文档化的语义。
 
 执行原则：先空载/小步长，再正常使用；每条记录"实测结果"与"是否需改代码"。涉及运动时身边常备物理急停。`§` 指向本文档相关详述章节。
 
@@ -586,7 +588,7 @@ python -m automatic_transfer_station.gas_network_probe --ip 192.168.0.200 --mode
 ### H. v0.0.1 发布前审查的暂缓项（已记录，非 live bug，择机处理）
 - [x] **H1 Space 急停（聚焦输入框时是否被吞键）**（重要·安全相关）：Space 全局急停用 `Qt.ApplicationShortcut`。**✅ 真机已确认（2026-06-22）：焦点在输入框/spinbox 时按 Space 仍能急停，不被吞键，无需加应用级事件过滤。** 红色"停止移动"按钮同样始终可用。
 - [ ] **H2 手柄连续 jog 队列合并**：手柄连续 jog 未带 `kind/metadata`，仅靠面板 `_cont_epoch` 守卫防"停后被陈旧命令重启"。CPython GIL 下原子且有序，当前安全；若改 free-threaded 或想与 GUI jog 路径一致，给它加 `kind=CONTINUOUS_JOG_KIND, metadata=axis` 走队列级 latest-wins 合并。
-- [ ] **H3 板动作回调关窗守卫**：`_run_board_action` 的 on_done/on_error 缺 `if self._closing: return`，关窗后排队信号可能触达正在销毁的 UI（今天因 is_open=False 短路，未崩）；加守卫更稳。
+- [x] **H3 板动作迟到回调守卫**：`_run_board_action` 现在给每次板卡 open/close/reset 分配 generation token；超时或关窗会推进 token，迟到的 on_done/on_error 被丢弃，不能覆盖超时报警或触达正在销毁的 UI。
 - [ ] **H4 安全扫描异常别降级**：`_handle_async_position_refresh` 把 `_stop_unsafe_axes_if_needed` 与标签更新放同一 try，安全扫描若抛异常会被降级成"位置记录失败"而非报警；拆开、扫描异常单独升级为 alarm + audit CRITICAL。
 - [ ] **H5 杂项 nit**：`directional_neighbor` 显式平手规则（当前网格无平手）；`GamepadPanel.prepare_for_close()`（关窗时停 timer + 解除，替代直戳 `_timer`）；`update_axes` 重复 `float()`；真机 DLL smoke 测试加 `skipUnless`（仅 Windows+有 DLL）；RD105 PWM 满量程 20000 待数据手册确认（仅显示、不上安全路径）。
 

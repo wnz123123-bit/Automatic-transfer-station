@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 from itertools import count
 import logging
 from pathlib import Path
-from queue import Empty, PriorityQueue
+from queue import Empty, PriorityQueue, Queue
 import threading
+import time
 
-from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QBrush, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -584,79 +585,71 @@ class InlineBoardExecutor:
         return False
 
 
-class _BoardActionThread(QThread):
-    """Runs one blocking board DLL call off the GUI thread.
-
-    Mirrors temperature_panel.SerialTaskThread / objective_panel.ObjectiveMoveThread:
-    executes a callable on a worker thread and reports the result back to the GUI
-    thread via Qt signals (queued connections), so the blocking GA_Open/GA_Close/
-    GA_Reset network call cannot freeze the window.
-    """
-
-    succeeded = Signal(object)
-    failed = Signal(object)
-
-    def __init__(self, action: Callable[[], object], parent=None):
-        super().__init__(parent)
-        self._action = action
-
-    def run(self) -> None:
-        try:
-            result = self._action()
-        except Exception as exc:  # noqa: BLE001 - keep the worker from dying silently
-            self.failed.emit(exc)
-            return
-        self.succeeded.emit(result)
-
-
 class ThreadedBoardExecutor(QObject):
-    """Production board-action executor: dispatches each blocking call to a QThread.
+    """Production board-action executor: dispatch blocking calls off the GUI thread.
 
     A clicked 打开/关闭/复位 returns immediately; the slow GA_* network transaction
-    runs on a one-shot worker thread and the result is delivered back to the GUI
-    thread via on_done/on_error. Threads are parented to this QObject so they are
-    not garbage-collected mid-run, and wait_for_idle() lets window close join any
-    in-flight worker cleanly instead of aborting it.
+    runs on a Python worker thread and the result is drained by a GUI-thread QTimer
+    before calling on_done/on_error. This keeps UI writes on the main Qt thread
+    without relying on QThread signal lifetime during application teardown.
     """
 
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
-        self._threads: set[_BoardActionThread] = set()
+        self._threads: set[threading.Thread] = set()
+        self._threads_lock = threading.Lock()
+        self._results: Queue[tuple[Callable[[object], None], object]] = Queue()
+        self._result_timer = QTimer(self)
+        self._result_timer.setInterval(0)
+        self._result_timer.timeout.connect(self._drain_results)
 
     def submit(self, action: Callable[[], object], on_done, on_error) -> None:
-        thread = _BoardActionThread(action, self)
-        self._threads.add(thread)
-        thread.succeeded.connect(on_done)
-        thread.failed.connect(on_error)
-        thread.finished.connect(lambda t=thread: self._cleanup(t))
-        thread.start()
+        def run() -> None:
+            try:
+                result = action()
+            except Exception as exc:  # noqa: BLE001 - mirror on_error signalling
+                self._results.put((on_error, exc))
+            else:
+                self._results.put((on_done, result))
+            finally:
+                with self._threads_lock:
+                    self._threads.discard(threading.current_thread())
 
-    def _cleanup(self, thread: _BoardActionThread) -> None:
-        self._threads.discard(thread)
-        thread.deleteLater()
+        thread = threading.Thread(target=run, name="ATSBoardAction", daemon=True)
+        with self._threads_lock:
+            self._threads.add(thread)
+        thread.start()
+        if not self._result_timer.isActive():
+            self._result_timer.start()
+
+    def _drain_results(self) -> None:
+        while True:
+            try:
+                callback, value = self._results.get_nowait()
+            except Empty:
+                break
+            callback(value)
+        if not self.is_busy() and self._results.empty():
+            self._result_timer.stop()
 
     def wait_for_idle(self, timeout_ms: int = 5000) -> None:
-        # Block until every worker thread has finished so no QThread is left
-        # running when the window/executor is torn down (which would abort Qt). An
-        # overall deadline guarantees a hung DLL call cannot freeze window close
-        # forever; on expiry we return and let the caller proceed.
-        from PySide6.QtCore import QDeadlineTimer
-
-        deadline = QDeadlineTimer(max(0, int(timeout_ms)))
+        deadline = time.monotonic() + max(0, int(timeout_ms)) / 1000.0
         while True:
-            pending = [thread for thread in list(self._threads) if thread.isRunning()]
+            with self._threads_lock:
+                pending = [thread for thread in self._threads if thread.is_alive()]
             if not pending:
                 return
-            remaining = deadline.remainingTime()
-            if remaining == 0:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 return
             for thread in pending:
-                thread.wait(remaining if remaining > 0 else 0)
-                if deadline.hasExpired():
+                thread.join(timeout=max(0.0, remaining))
+                if time.monotonic() >= deadline:
                     return
 
     def is_busy(self) -> bool:
-        return any(thread.isRunning() for thread in self._threads)
+        with self._threads_lock:
+            return any(thread.is_alive() for thread in self._threads)
 
 
 class MainWindow(QMainWindow):
@@ -666,6 +659,14 @@ class MainWindow(QMainWindow):
     # ~21 s OS TCP connect timeout for the unreachable board, so a genuinely slow
     # but completing connect is not falsely flagged.
     BOARD_ACTION_TIMEOUT_MS = 25000
+
+    # Bounded wait on window close for the RD105 heater-off (ENABLE=0) to actually
+    # reach the controller before the process exits. The RD105 is a standalone
+    # controller — if the PC exits without sending ENABLE=0 it keeps heating — so
+    # the close path must give the disconnect worker a deterministic chance to
+    # finish, while still bounding the wait so a wedged serial driver cannot hang
+    # close forever.
+    HEATER_OFF_CLOSE_TIMEOUT_MS = 3000
 
     # CP1 — reactive motion-safety scan backstop.
     #
@@ -732,6 +733,9 @@ class MainWindow(QMainWindow):
         # True while a threaded board action is in flight (buttons disabled, a
         # watchdog timer armed). Stays False on the inline path.
         self._board_action_in_flight = False
+        # Monotonic token for board open/close/reset callbacks. A timeout or
+        # close invalidates the token so a late worker cannot overwrite the alarm.
+        self._board_action_generation = 0
         self._board_action_watchdog: QTimer | None = None
         self._motion_command_callback_ids = count()
         self._motion_command_callbacks: dict[int, tuple[str | None, Callable[[object], None] | None, bool]] = {}
@@ -1532,13 +1536,17 @@ class MainWindow(QMainWindow):
         # then the finish step restores it within the same submit() call, so the
         # observable end state is unchanged. The watchdog is only meaningful for an
         # asynchronous executor (an inline action has already returned).
+        self._board_action_generation += 1
+        generation = self._board_action_generation
         self._set_board_controls_enabled(False)
         self._board_action_in_flight = True
         self._set_motion_status(spec["busy_text"], "reset")
         if self._board_executor_is_threaded():
             self._start_board_action_watchdog(kind)
 
-        def on_done(_result, kind=kind, spec=spec):
+        def on_done(_result, kind=kind, spec=spec, generation=generation):
+            if generation != self._board_action_generation:
+                return
             self._finish_board_action()
             try:
                 spec["finish"]()
@@ -1547,7 +1555,9 @@ class MainWindow(QMainWindow):
                 return
             self._after_board_action_success(spec)
 
-        def on_error(exc, spec=spec):
+        def on_error(exc, spec=spec, generation=generation):
+            if generation != self._board_action_generation:
+                return
             self._finish_board_action()
             QMessageBox.warning(self, "操作失败", str(exc))
 
@@ -1590,6 +1600,7 @@ class MainWindow(QMainWindow):
         # surface the timeout and re-enable the buttons so the operator is not
         # stuck staring at a frozen-looking panel forever. A late completion still
         # runs its on_done/on_error harmlessly (in_flight is already cleared).
+        self._board_action_generation += 1
         self._board_action_in_flight = False
         self._board_action_watchdog = None
         self._set_board_controls_enabled(True)
@@ -2856,7 +2867,7 @@ class MainWindow(QMainWindow):
             if panel is not None:
                 panel.disarm()
 
-    def closeEvent(self, event) -> None:
+    def _prepare_for_close(self) -> None:
         # Stop the position-refresh timer first and mark the window closing so a
         # queued 100 ms timeout firing during the teardown below (which spins the
         # event loop via processEvents) cannot enqueue a position_refresh that
@@ -2895,24 +2906,29 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(str(exc))
         temperature_panel = getattr(self, "temperature_panel", None)
         if temperature_panel is not None:
-            # prepare_for_close marks the panel closing (so any late worker
-            # signal queued during teardown is a no-op) and detaches any
-            # SerialTaskThread still running after the bounded wait, so the
-            # panel's destruction cannot delete a running QThread → std::terminate.
-            # disconnect_from_device still runs afterward to turn the heater off.
+            # First, mark the panel closing and immediately detach any in-flight
+            # poll worker (don't wait on a possibly-stuck read). Then submit the
+            # controller disconnect (heater-off / ENABLE=0) on a worker, and give
+            # it a BOUNDED wait to actually complete before the process exits — the
+            # RD105 keeps heating if the PC exits without ENABLE=0, so this best-
+            # effort-with-a-real-chance shutdown matters. A wedged serial driver is
+            # capped by HEATER_OFF_CLOSE_TIMEOUT_MS and then detached, so close
+            # still cannot hang forever.
             if hasattr(temperature_panel, "prepare_for_close"):
-                temperature_panel.prepare_for_close()
+                temperature_panel.prepare_for_close(timeout_ms=0)
             try:
                 temperature_panel.disconnect_from_device()
+                if hasattr(temperature_panel, "prepare_for_close"):
+                    temperature_panel.prepare_for_close(timeout_ms=self.HEATER_OFF_CLOSE_TIMEOUT_MS)
             except Exception as exc:
                 self.statusBar().showMessage(str(exc))
-        # Join any in-flight threaded board open/close/reset worker so its QThread
-        # is not still running when the window closes (a running QThread aborts Qt
-        # on teardown). wait_for_idle has its own deadline so a wedged DLL call
-        # cannot freeze window close forever. Stop the watchdog too.
+        # Join any in-flight threaded board open/close/reset worker. wait_for_idle
+        # has its own deadline so a wedged DLL call cannot freeze window close
+        # forever. Stop the watchdog too.
         if getattr(self, "_board_action_watchdog", None) is not None:
             self._board_action_watchdog.stop()
             self._board_action_watchdog = None
+        self._board_action_generation += 1
         board_executor = getattr(self, "_board_action_executor", None)
         if board_executor is not None and hasattr(board_executor, "wait_for_idle"):
             board_executor.wait_for_idle()
@@ -2932,4 +2948,7 @@ class MainWindow(QMainWindow):
                 self.controller.close_board()
             except MotionControllerError as exc:
                 self.statusBar().showMessage(str(exc))
+
+    def closeEvent(self, event) -> None:
+        self._prepare_for_close()
         super().closeEvent(event)

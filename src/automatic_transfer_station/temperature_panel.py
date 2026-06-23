@@ -38,6 +38,11 @@ from .rd105_controller import TemperatureController, select_preferred_port
 # before sending to the controller (high-temperature safety gate, Fix 1).
 WARN_CONFIRM_TEMPERATURE: float = 150.0
 
+# Keep detached serial QThreads alive even after the owning panel/executor is
+# destroyed during application close. Without this module-level reference Python
+# can garbage-collect a still-running detached QThread and abort Qt.
+_DETACHED_SERIAL_THREADS: list["SerialTaskThread"] = []
+
 try:
     from serial.tools import list_ports
 except Exception:  # pragma: no cover - serial is optional for tests and previews
@@ -105,6 +110,10 @@ class ThreadedSerialExecutor(QObject):
 
     def _cleanup(self, thread: SerialTaskThread) -> None:
         self._threads.discard(thread)
+        if thread in self._detached_threads:
+            self._detached_threads.remove(thread)
+        if thread in _DETACHED_SERIAL_THREADS:
+            _DETACHED_SERIAL_THREADS.remove(thread)
         thread.deleteLater()
 
     def wait_for_idle(self, timeout_ms: int = 5000) -> None:
@@ -144,6 +153,11 @@ class ThreadedSerialExecutor(QObject):
                 continue
             if thread in self._detached_threads:
                 continue
+            for signal in (thread.succeeded, thread.failed, thread.finished):
+                try:
+                    signal.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
             try:
                 thread.setParent(None)
             except Exception:  # pragma: no cover - defensive; reparent must not crash
@@ -153,6 +167,28 @@ class ThreadedSerialExecutor(QObject):
             except Exception:  # pragma: no cover - quit on a run()-only thread is a no-op
                 pass
             self._detached_threads.append(thread)
+            _DETACHED_SERIAL_THREADS.append(thread)
+
+    def reap_detached_threads(self) -> None:
+        """Release detached threads that have since finished.
+
+        Normal application close exits the process shortly after detaching, but
+        the test suite keeps the same QApplication alive and continues pumping Qt
+        events. Reaping finished detached threads avoids retaining half-torn-down
+        QThread wrappers across unrelated tests.
+        """
+        for thread in list(self._detached_threads):
+            if thread.isRunning():
+                continue
+            self._detached_threads.remove(thread)
+            if thread in _DETACHED_SERIAL_THREADS:
+                _DETACHED_SERIAL_THREADS.remove(thread)
+            try:
+                from shiboken6 import delete
+
+                delete(thread)
+            except Exception:  # pragma: no cover - fallback if shiboken is unavailable
+                thread.deleteLater()
 
 
 class InlineSerialExecutor:
@@ -301,6 +337,7 @@ class TemperaturePanel(QWidget):
         # into a half-destroyed widget tree (mirrors objective_panel pattern).
         self._closing = False
         self._poll_in_flight = False
+        self._disconnect_in_flight = False
         # BP2 panel side: timestamp when _poll_in_flight was set, so a later timer
         # tick can detect a STUCK poll (a read that never returned) and treat it as
         # a comm-failure safety event. Injectable clock keeps tests deterministic.
@@ -552,12 +589,17 @@ class TemperaturePanel(QWidget):
         self._set_status("RD105 端口已刷新")
 
     def toggle_connection(self) -> None:
+        if self._disconnect_in_flight:
+            return
         if self.controller is not None and getattr(self.controller, "is_connected", False):
             self.disconnect_from_device()
         else:
             self.connect_to_device()
 
     def connect_to_device(self) -> bool:
+        if self._disconnect_in_flight:
+            self._set_status("RD105 正在断开连接，请稍候")
+            return False
         port = self.controls["tempPortCombo"].currentText().strip() or DEFAULT_TEMPERATURE_CONTROLLER_PORT
         controller = self.controller_factory(port)
         self.controller = controller
@@ -625,34 +667,55 @@ class TemperaturePanel(QWidget):
 
     def disconnect_from_device(self) -> None:
         self.monitor_timer.stop()
-        # Let any in-flight serial worker finish so the controller's serial_lock is
-        # free, then disconnect (which itself disables output - see controller #3).
-        executor = self._serial_executor
-        if hasattr(executor, "wait_for_idle"):
-            executor.wait_for_idle()
-            # Drain queued worker-result signals now, while the panel is still
-            # alive, so a finished worker's slot never fires on a torn-down panel.
-            app = QApplication.instance()
-            if app is not None:
-                app.processEvents()
-            if hasattr(executor, "is_busy") and executor.is_busy():
-                # A drained slot may have queued a follow-up serial task; settle it.
-                executor.wait_for_idle()
-                if app is not None:
-                    app.processEvents()
         self._poll_in_flight = False
         self._poll_in_flight_since = None
-        disable_error = ""
-        if self.controller is not None:
-            self.controller.disconnect()
-            last_error = getattr(self.controller, "last_error", "") or ""
-            if "关闭输出失败" in last_error:
-                # disconnect() tried to turn the heater off and failed; do not let
-                # the GUI imply a clean shutdown — surface it to the operator.
-                disable_error = last_error
+        controller = self.controller
+        if controller is None:
+            if not self._slots_disabled():
+                self.controls["tempConnectionLabel"].setText("已断开")
+                self.controls["tempConnect"].setText("开始连接")
+                self.controls["tempConnect"].setEnabled(True)
+                self._set_status("RD105 已断开")
+            return
+        if self._disconnect_in_flight:
+            return
+        self._disconnect_in_flight = True
+        if not self._slots_disabled():
+            self.controls["tempConnect"].setEnabled(False)
+            self.controls["tempConnectionLabel"].setText("正在断开")
+            self._set_status("RD105 正在断开连接（先关闭输出）")
+        self._serial_executor.submit(
+            "disconnect",
+            controller.disconnect,
+            lambda kind, _result: self._handle_disconnect_result(controller),
+            lambda kind, message: self._handle_disconnect_failure(controller, message),
+        )
+
+    def _handle_disconnect_result(self, controller) -> None:
+        self._disconnect_in_flight = False
+        self._poll_in_flight = False
+        self._poll_in_flight_since = None
+        if self.controller is controller:
+            self.controller = controller
+        if self._slots_disabled():
+            return
+        last_error = getattr(controller, "last_error", "") or ""
+        disable_error = last_error if "关闭输出失败" in last_error else ""
         self.controls["tempConnectionLabel"].setText("已断开（关闭输出失败）" if disable_error else "已断开")
         self.controls["tempConnect"].setText("开始连接")
+        self.controls["tempConnect"].setEnabled(True)
         self._set_status(f"RD105 {disable_error}" if disable_error else "RD105 已断开")
+
+    def _handle_disconnect_failure(self, controller, message: str) -> None:
+        self._disconnect_in_flight = False
+        self._poll_in_flight = False
+        self._poll_in_flight_since = None
+        if self._slots_disabled():
+            return
+        self.controls["tempConnectionLabel"].setText("断开失败")
+        self.controls["tempConnect"].setText("断开连接")
+        self.controls["tempConnect"].setEnabled(True)
+        self._set_status(f"RD105 断开失败：{message}", sticky=4)
 
     def poll_temperature_once(self) -> None:
         if self.controller is None or not getattr(self.controller, "is_connected", False):
@@ -863,8 +926,10 @@ class TemperaturePanel(QWidget):
             # Keep this message for the next `sticky` steady-reading polls so a
             # one-shot command failure is not wiped within ~1s by "实时读数已更新".
             self._status_sticky_polls = sticky
-        if flush:
-            QApplication.processEvents()
+        # ``flush`` is kept for call-site readability: the label is updated
+        # synchronously by setText(), and serial work now runs on workers. Do not
+        # force QApplication.processEvents() here; re-entering the event loop from
+        # a command button can dispatch unrelated late worker callbacks.
 
     @staticmethod
     def _format_temperature(value: object) -> str:

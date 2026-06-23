@@ -1125,7 +1125,8 @@
               <span>当前温度<strong class="temperature-value">--.-- °C</strong></span>
               <span>当前给定<strong class="temperature-value">--.-- °C</strong></span>
               <span>目标温度<strong class="temperature-value">--.-- °C</strong></span>
-              <span>输出百分比<strong class="temperature-value">-- %</strong></span>
+              <span>输出 (PWM)<strong class="temperature-value">-- PWM</strong></span>
+              <span>最大输出占空比<strong class="temperature-value">-- %</strong></span>
               <span>控制状态<strong class="temperature-value">等待接入</strong></span>
               <span>错误码<strong class="temperature-value">--</strong></span>
             </div>
@@ -1140,8 +1141,6 @@
               <button class="temperature-button" type="button" data-temperature-action="ramp">按速率升温</button>
               <label>升温速率 (°C/小时)</label>
               <input value="10.0" inputmode="decimal" aria-label="温控升温速率">
-              <span>自动 PID 档</span>
-              <strong class="temperature-value">未选择</strong>
               <button class="temperature-button danger temperature-wide" type="button" data-temperature-action="stop">关闭输出</button>
             </div>
           </section>

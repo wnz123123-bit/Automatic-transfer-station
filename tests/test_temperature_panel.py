@@ -14,13 +14,20 @@ SRC_DIR = PROJECT_ROOT / "src"
 PYTHON_DIR = SRC_DIR / "automatic_transfer_station"
 sys.path.insert(0, str(SRC_DIR))
 
+_QT_APP = None
+
 
 def get_app():
+    global _QT_APP
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
     if app is None:
-        app = QApplication([])
+        _QT_APP = QApplication([])
+        app = _QT_APP
+    elif _QT_APP is None:
+        _QT_APP = app
+    app.setQuitOnLastWindowClosed(False)
     return app
 
 
@@ -41,6 +48,15 @@ def wait_until(predicate, timeout=2.0):
             return True
         time.sleep(0.01)
     app.processEvents()
+    return bool(predicate())
+
+
+def wait_plain(predicate, timeout=2.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
     return bool(predicate())
 
 
@@ -481,8 +497,50 @@ class TemperaturePanelTests(unittest.TestCase):
         self.assertLess(stop_elapsed, 0.2)
         self.assertTrue(wait_until(lambda: ("stop_heating",) in slow.calls, timeout=2.0))
 
-        panel.disconnect_from_device()  # joins worker threads cleanly
+        panel.disconnect_from_device()
+        self.assertTrue(wait_until(lambda: ("disconnect",) in slow.calls, timeout=2.0))
+        panel.prepare_for_close(timeout_ms=2000)
         get_app().processEvents()  # flush any pending deleteLater from finished threads
+
+    def test_disconnect_button_does_not_block_gui_thread(self):
+        from automatic_transfer_station.temperature_panel import TemperaturePanel
+
+        get_app()
+
+        class SlowDisconnectController(FakeTemperatureController):
+            def __init__(self):
+                super().__init__()
+                self.is_connected = True
+                self.disconnect_started = threading.Event()
+
+            def disconnect(self):
+                self.disconnect_started.set()
+                time.sleep(0.4)
+                super().disconnect()
+
+        slow = SlowDisconnectController()
+        controls = {}
+        panel = TemperaturePanel(
+            register=lambda name, widget: controls.setdefault(name, widget),
+            controller_factory=lambda port: slow,
+            auto_poll=False,
+            port_lister=lambda: [SimpleNamespace(device="COM5", description="USB-SERIAL CH340", hwid="")],
+        )
+        panel.controller = slow
+        controls["tempConnect"].setText("断开连接")
+        controls["tempConnectionLabel"].setText("已连接 COM5")
+
+        start = time.monotonic()
+        controls["tempConnect"].click()
+        elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 0.2)
+        self.assertTrue(slow.disconnect_started.wait(2.0))
+        self.assertTrue(wait_until(lambda: ("disconnect",) in slow.calls, timeout=2.0))
+        self.assertTrue(wait_until(lambda: "已断开" in controls["tempConnectionLabel"].text(), timeout=2.0))
+        self.assertIn("已断开", controls["tempConnectionLabel"].text())
+        panel.prepare_for_close(timeout_ms=2000)
+        get_app().processEvents()
 
     def test_disconnect_surfaces_heater_disable_failure_to_operator(self):
         from automatic_transfer_station.temperature_panel import TemperaturePanel
@@ -873,9 +931,11 @@ class TemperaturePanelCloseTests(unittest.TestCase):
 
         # Release the slow action so the thread can exit cleanly
         hold.set()
-        # Give it a moment to finish (no assert on timing — just housekeeping)
+        # Give it a moment to finish, then reap the detached QThread wrapper so
+        # later tests can safely pump the shared QApplication event loop.
         for t in detached:
             t.wait(3000)
+        executor.reap_detached_threads()
 
     def test_prepare_for_close_is_idempotent(self):
         """Calling prepare_for_close twice must not raise."""
@@ -887,6 +947,19 @@ class TemperaturePanelCloseTests(unittest.TestCase):
 
 class TemperaturePanelCloseWithMainWindowTests(unittest.TestCase):
     """Verify closeEvent calls prepare_for_close on temperature_panel."""
+
+    def _dispose_window(self, window):
+        # The test calls close() only to exercise closeEvent. Remove any posted
+        # events for this test window tree so later tests sharing the same
+        # QApplication do not process teardown callbacks from this closed window.
+        from PySide6.QtCore import QCoreApplication, QObject
+
+        try:
+            objects = [window, *window.findChildren(QObject)]
+            for obj in objects:
+                QCoreApplication.removePostedEvents(obj)
+        except RuntimeError:
+            pass
 
     def _make_window(self):
         get_app()
@@ -935,13 +1008,12 @@ class TemperaturePanelCloseWithMainWindowTests(unittest.TestCase):
         orig = getattr(window.temperature_panel, "prepare_for_close", None)
         window.temperature_panel.prepare_for_close = lambda *a, **kw: called.append(True) or (orig(*a, **kw) if orig else True)
 
-        from PySide6.QtGui import QCloseEvent
-        event = QCloseEvent()
-        window.closeEvent(event)
+        window._prepare_for_close()
 
         self.assertTrue(called, "prepare_for_close must be called from closeEvent")
         self.assertTrue(window.temperature_panel._closing,
                         "_closing must be set on the temperature panel after close")
+        self._dispose_window(window)
 
     def test_disconnect_still_called_after_prepare_for_close(self):
         """disconnect_from_device must still be called even when prepare_for_close runs."""
@@ -950,12 +1022,79 @@ class TemperaturePanelCloseWithMainWindowTests(unittest.TestCase):
         fake.is_connected = True
         window.temperature_panel.controller = fake
 
-        from PySide6.QtGui import QCloseEvent
-        event = QCloseEvent()
-        window.closeEvent(event)
+        window._prepare_for_close()
 
-        # disconnect() on the controller must have been called
+        # disconnect() is submitted asynchronously on close, so wait for the
+        # worker action without re-entering Qt while the window is tearing down.
+        self.assertTrue(wait_plain(lambda: ("disconnect",) in fake.calls, timeout=2.0))
+        window.temperature_panel._serial_executor.reap_detached_threads()
+        self._dispose_window(window)
+
+    def test_close_event_completes_heater_off_when_disconnect_responsive(self):
+        # Safety: the RD105 keeps heating if the PC exits without ENABLE=0, so on
+        # close the heater-off (disconnect) must actually COMPLETE before close
+        # returns when the serial port is responsive — not race the process exit.
+        window = self._make_window()
+
+        class SlowDisconnectController(FakeTemperatureController):
+            def __init__(self):
+                super().__init__()
+                self.is_connected = True
+                self.disconnect_finished = threading.Event()
+
+            def disconnect(self):
+                time.sleep(0.3)
+                super().disconnect()
+                self.disconnect_finished.set()
+
+        fake = SlowDisconnectController()
+        window.temperature_panel.controller = fake
+
+        start = time.monotonic()
+        window._prepare_for_close()
+        elapsed = time.monotonic() - start
+
+        # Close waited for the heater-off to finish (>= the 0.3 s disconnect)...
+        self.assertTrue(fake.disconnect_finished.is_set(),
+                        "heater-off (disconnect) must complete before close returns")
         self.assertIn(("disconnect",), fake.calls)
+        self.assertGreaterEqual(elapsed, 0.25)
+        # ...but stayed well within the bounded close timeout (3 s).
+        self.assertLess(elapsed, 2.0)
+        window.temperature_panel._serial_executor.reap_detached_threads()
+        self._dispose_window(window)
+
+    def test_close_event_is_bounded_when_disconnect_wedged(self):
+        # A wedged serial driver must not hang window close: the heater-off wait is
+        # capped at HEATER_OFF_CLOSE_TIMEOUT_MS and the worker is then detached.
+        window = self._make_window()
+        window.HEATER_OFF_CLOSE_TIMEOUT_MS = 200
+
+        release = threading.Event()
+
+        class WedgedDisconnectController(FakeTemperatureController):
+            def __init__(self):
+                super().__init__()
+                self.is_connected = True
+
+            def disconnect(self):
+                release.wait(5.0)  # simulate a wedged serial driver
+                super().disconnect()
+
+        fake = WedgedDisconnectController()
+        window.temperature_panel.controller = fake
+
+        start = time.monotonic()
+        window._prepare_for_close()
+        elapsed = time.monotonic() - start
+
+        # Close returned promptly (bounded by the 200 ms cap), did not wait 5 s.
+        self.assertLess(elapsed, 1.5)
+        # Release the wedged worker and let it finish before reaping.
+        release.set()
+        self.assertTrue(wait_plain(lambda: ("disconnect",) in fake.calls, timeout=2.0))
+        window.temperature_panel._serial_executor.reap_detached_threads()
+        self._dispose_window(window)
 
 
 if __name__ == "__main__":

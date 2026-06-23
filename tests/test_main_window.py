@@ -17,13 +17,20 @@ SRC_DIR = PROJECT_ROOT / "src"
 PYTHON_DIR = SRC_DIR / "automatic_transfer_station"
 sys.path.insert(0, str(SRC_DIR))
 
+_QT_APP = None
+
 
 def get_app():
+    global _QT_APP
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
     if app is None:
-        app = QApplication([])
+        _QT_APP = QApplication([])
+        app = _QT_APP
+    elif _QT_APP is None:
+        _QT_APP = app
+    app.setQuitOnLastWindowClosed(False)
     return app
 
 
@@ -2954,20 +2961,25 @@ class BoardActionExecutorTests(unittest.TestCase):
 
     # ---- 3. ThreadedBoardExecutor in isolation (offscreen) ----
 
+    def _wait_for_executor_result(self, executor, predicate, timeout=2.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            executor._drain_results()
+            if predicate():
+                return True
+            time.sleep(0.01)
+        executor._drain_results()
+        return bool(predicate())
+
     def _drain_executor(self, executor):
-        # Join the worker, then pump the event loop so each thread's finished ->
-        # deleteLater cleanup runs while the executor is still alive. Keeping a
-        # reference (via the closure) prevents the QObject/QThread being GC'd
-        # mid-finish, which would abort Qt.
         executor.wait_for_idle()
-        wait_until(lambda: not executor.is_busy(), timeout=2.0)
-        get_app().processEvents()
+        executor._drain_results()
 
     def test_threaded_board_executor_delivers_on_done(self):
         from automatic_transfer_station.main_window import ThreadedBoardExecutor
 
-        app = get_app()
-        executor = ThreadedBoardExecutor(app)
+        get_app()
+        executor = ThreadedBoardExecutor()
         self.addCleanup(lambda: self._drain_executor(executor))
         ran = threading.Event()
         results = {}
@@ -2988,15 +3000,15 @@ class BoardActionExecutorTests(unittest.TestCase):
 
         # submit() must return immediately (does not run the action inline).
         self.assertLess(submit_elapsed, 0.1)
-        self.assertTrue(wait_until(lambda: "done" in results, timeout=2.0))
+        self.assertTrue(self._wait_for_executor_result(executor, lambda: "done" in results, timeout=2.0))
         self.assertEqual(42, results["done"])
         self.assertNotIn("error", results)
 
     def test_threaded_board_executor_delivers_on_error(self):
         from automatic_transfer_station.main_window import ThreadedBoardExecutor
 
-        app = get_app()
-        executor = ThreadedBoardExecutor(app)
+        get_app()
+        executor = ThreadedBoardExecutor()
         self.addCleanup(lambda: self._drain_executor(executor))
         results = {}
 
@@ -3009,7 +3021,7 @@ class BoardActionExecutorTests(unittest.TestCase):
             lambda exc: results.__setitem__("error", exc),
         )
 
-        self.assertTrue(wait_until(lambda: "error" in results, timeout=2.0))
+        self.assertTrue(self._wait_for_executor_result(executor, lambda: "error" in results, timeout=2.0))
         self.assertIsInstance(results["error"], RuntimeError)
         self.assertEqual("board boom", str(results["error"]))
         self.assertNotIn("done", results)
@@ -3048,8 +3060,9 @@ class BoardActionExecutorTests(unittest.TestCase):
         self.assertFalse(window.controls["btnOpen"].isEnabled())
         self.assertEqual("运动控制连接中…", window.controls["motionStatusText"].text())
         # Eventually completes on the GUI thread: is_open True, buttons re-enabled.
-        self.assertTrue(wait_until(lambda: controller.is_open, timeout=2.0))
-        self.assertTrue(wait_until(lambda: window.controls["btnOpen"].isEnabled(), timeout=2.0))
+        executor = window._board_action_executor
+        self.assertTrue(self._wait_for_executor_result(executor, lambda: controller.is_open, timeout=2.0))
+        self.assertTrue(window.controls["btnOpen"].isEnabled())
         self.assertEqual("运动控制已打开", window.controls["motionStatusText"].text())
 
     # ---- 4. Watchdog surfaces a timeout for a wedged board action ----
@@ -3093,13 +3106,50 @@ class BoardActionExecutorTests(unittest.TestCase):
             # In flight: buttons disabled.
             self.assertFalse(window.controls["btnOpen"].isEnabled())
             self.assertTrue(window._board_action_in_flight)
-            # Pump the event loop until the watchdog fires.
-            self.assertTrue(wait_until(lambda: not window._board_action_in_flight, timeout=2.0))
+            # Trigger the watchdog path deterministically without pumping the
+            # process-wide Qt event loop.
+            watchdog = window._board_action_watchdog
+            if watchdog is not None:
+                watchdog.stop()
+            window._on_board_action_timeout("open")
+            self.assertFalse(window._board_action_in_flight)
 
         self.assertEqual(1, len(warnings), "watchdog must surface a timeout warning")
         self.assertIn("超时", window.controls["motionStatusText"].text())
         # Buttons re-enabled so the operator is not stuck.
         self.assertTrue(window.controls["btnOpen"].isEnabled())
+
+    def test_late_board_success_after_timeout_does_not_clear_timeout_alarm(self):
+        class LateCompletesExecutor:
+            def submit(self, action, on_done, on_error):
+                self.action = action
+                self.on_done = on_done
+                self.on_error = on_error
+
+            def wait_for_idle(self, timeout_ms=5000):
+                return None
+
+            def is_busy(self):
+                return False
+
+        controller = RecordingController()
+        executor = LateCompletesExecutor()
+        window = self._make_window(controller, board_action_executor=executor)
+        self.addCleanup(window.close)
+        window.timer.stop()
+
+        warnings = []
+        with patch("PySide6.QtWidgets.QMessageBox.warning", lambda *a, **k: warnings.append(a)):
+            window._run_board_action("open")
+            window._on_board_action_timeout("open")
+
+        timeout_text = window.controls["motionStatusText"].text()
+        self.assertIn("超时", timeout_text)
+
+        executor.on_done(None)
+
+        self.assertEqual(timeout_text, window.controls["motionStatusText"].text())
+        self.assertFalse(controller.is_open)
 
 
 class Package7SafetyPathTests(unittest.TestCase):
