@@ -150,9 +150,11 @@ def build_f710_help_svg() -> str:
     p.append(_text(750, 338, "选轴：Y=上  A=下  X=左  B=右", size=13, fill=_SUB))
     p.append(_callout(750, 410, "start", "右摇杆", ["X2（左右）/ Y2（前后） 连续"], (742, 404), (576, 326)))
 
-    # MODE (bottom).
-    p.append(_leader(500, 295, 500, 452))
-    p.append(_text(500, 472, "MODE 拨到 X 模式", size=14, weight="700", anchor="middle"))
+    # MODE: on the front face, in the centre cluster (just below BACK/logo/START).
+    # A short leader keeps the label tied to its real centre position rather than
+    # appearing to sit at the front edge of the pad.
+    p.append(_leader(500, 291, 500, 348))
+    p.append(_text(500, 368, "MODE 拨到 X 模式", size=13, weight="700", anchor="middle"))
 
     # Footer notes.
     p.append(_text(500, 520, "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）",
