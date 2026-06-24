@@ -389,6 +389,26 @@ class TemperaturePanel(QWidget):
         header.addWidget(subtitle, 1)
         root.addLayout(header)
 
+        # Prominent heating-hazard banner, pinned at the top of the panel so it is
+        # impossible to miss before touching any RD105 control. High-contrast red so
+        # it reads as a hazard, not a normal status line.
+        warning = self._register(
+            "tempHeatWarning",
+            QLabel("⚠ 高温警告：加热时请勿触碰加热台，谨防烫伤；离开或退出前务必关闭输出（ENABLE=0）"),
+        )
+        warning.setObjectName("tempHeatWarning")
+        warning.setWordWrap(True)
+        warning.setAlignment(Qt.AlignCenter)
+        warning.setStyleSheet(
+            "QLabel#tempHeatWarning{background:#b42318;color:#ffffff;font-weight:800;"
+            "border:1px solid #7a1711;border-radius:6px;padding:6px 10px;}"
+        )
+        # Only shown while the heater output is actually energized (control status
+        # 输出开启, or 超温保护-关闭输出失败 where the disable failed and it is still on).
+        # Hidden at rest so the banner means "live hazard right now", not boilerplate.
+        warning.hide()
+        root.addWidget(warning)
+
         root.addWidget(self._build_connection_group())
         root.addWidget(self._build_status_group())
         root.addWidget(self._build_control_group())
@@ -701,6 +721,9 @@ class TemperaturePanel(QWidget):
             return
         last_error = getattr(controller, "last_error", "") or ""
         disable_error = last_error if "关闭输出失败" in last_error else ""
+        # Keep the hazard banner up if disconnect could NOT turn the output off
+        # (still energized); otherwise the heater is off, so hide it.
+        self._apply_heat_warning("关闭输出失败" if disable_error else "输出关闭")
         self.controls["tempConnectionLabel"].setText("已断开（关闭输出失败）" if disable_error else "已断开")
         self.controls["tempConnect"].setText("开始连接")
         self.controls["tempConnect"].setEnabled(True)
@@ -772,6 +795,21 @@ class TemperaturePanel(QWidget):
             return
         self._set_status(f"RD105 {message}")
 
+    @staticmethod
+    def _output_energized(run_state) -> bool:
+        """True when the RD105 heater output is currently ON (a live burn hazard).
+
+        "输出开启" is the normal output-on state; "超温保护-关闭输出失败" means the
+        over-temperature guard tried to cut output but the disable command failed, so
+        it is still energized — also a hazard. "输出关闭"/"超温保护"/未知 are off."""
+        text = str(run_state or "")
+        return text == "输出开启" or "关闭输出失败" in text
+
+    def _apply_heat_warning(self, run_state) -> None:
+        warning = self.controls.get("tempHeatWarning")
+        if warning is not None:
+            warning.setVisible(self._output_energized(run_state))
+
     def on_temperature_snapshot(self, snapshot: dict[str, object]) -> None:
         if self._slots_disabled():
             return
@@ -780,7 +818,9 @@ class TemperaturePanel(QWidget):
         self.controls["tempOutputLabel"].setText(self._format_output_pwm(snapshot.get("output_percent")))
         max_output_duty = snapshot.get("max_output_duty_percent")
         self.controls["tempMaxOutputDutyLabel"].setText(self._format_percent(max_output_duty))
-        self.controls["tempRunStateLabel"].setText(str(snapshot.get("run_state") or "未知"))
+        run_state = snapshot.get("run_state")
+        self.controls["tempRunStateLabel"].setText(str(run_state or "未知"))
+        self._apply_heat_warning(run_state)
         error_code = snapshot.get("error_code")
         self.controls["tempErrorCodeLabel"].setText("--" if error_code is None else str(error_code))
         self._update_temperature_plot(snapshot)
@@ -897,6 +937,7 @@ class TemperaturePanel(QWidget):
         self._command_result = True
         if kind == "stop":
             self.controls["tempRunStateLabel"].setText("输出关闭")
+            self._apply_heat_warning("输出关闭")
             self._set_status("RD105 输出已关闭")
             self.poll_temperature_once()
             return

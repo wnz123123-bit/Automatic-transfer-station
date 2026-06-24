@@ -250,6 +250,46 @@ class TemperaturePanelTests(unittest.TestCase):
         self.assertIn("超温保护", controls["tempRunStateLabel"].text())
         self.assertIn("超温保护", controls["tempStatusLabel"].text())
 
+    def test_heat_warning_only_visible_when_output_energized(self):
+        from automatic_transfer_station.temperature_panel import TemperaturePanel
+
+        get_app()
+        controls = {}
+        panel = TemperaturePanel(
+            register=lambda name, widget: controls.setdefault(name, widget),
+            controller_factory=lambda port: FakeTemperatureController(),
+            port_lister=lambda: [SimpleNamespace(device="COM5", description="", hwid="")],
+        )
+
+        warning = controls["tempHeatWarning"]
+        # isHidden() reflects the explicit show/hide state without needing the panel
+        # to be shown (isVisible() would require all ancestors visible).
+        self.assertTrue(warning.isHidden(), "warning hidden at rest")
+
+        def snap(run_state):
+            return {
+                "temperature": 80.0,
+                "effective_setpoint": 80.0,
+                "output_percent": 10.0,
+                "max_output_duty_percent": 50,
+                "run_state": run_state,
+                "error_code": 0,
+            }
+
+        panel.on_temperature_snapshot(snap("输出开启"))
+        self.assertFalse(warning.isHidden(), "warning must show while output is on")
+
+        panel.on_temperature_snapshot(snap("输出关闭"))
+        self.assertTrue(warning.isHidden(), "warning must hide when output is off")
+
+        # Over-temp guard that failed to disable: output still on -> still a hazard.
+        panel.on_temperature_snapshot(snap("超温保护-关闭输出失败"))
+        self.assertFalse(warning.isHidden(), "warning must show if disable failed")
+
+        # Over-temp guard that DID disable output: off -> hidden.
+        panel.on_temperature_snapshot(snap("超温保护"))
+        self.assertTrue(warning.isHidden(), "warning must hide when output cut off")
+
     def test_panel_shows_software_ramp_status_from_snapshot(self):
         from automatic_transfer_station.temperature_panel import TemperaturePanel
 
