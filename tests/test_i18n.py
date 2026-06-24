@@ -138,5 +138,33 @@ class RetranslatorTests(unittest.TestCase):
         self.assertEqual(1, c.currentIndex())
 
 
+class TableAndDefaultTests(unittest.TestCase):
+    def test_no_empty_english_values(self):
+        from automatic_transfer_station.i18n import TRANSLATIONS, CONTEXT_TRANSLATIONS
+        empties = [k for k, v in TRANSLATIONS.items() if not str(v).strip()]
+        self.assertEqual([], empties, f"empty English in TRANSLATIONS: {empties}")
+        ctx_empties = [k for k, v in CONTEXT_TRANSLATIONS.items() if not str(v).strip()]
+        self.assertEqual([], ctx_empties, f"empty English in CONTEXT_TRANSLATIONS: {ctx_empties}")
+
+    def test_english_placeholders_match_chinese_key(self):
+        # A translated template must use the SAME {placeholders} as its Chinese key,
+        # so a later .format(**kwargs) call cannot raise KeyError/IndexError in EN.
+        import re
+        from automatic_transfer_station.i18n import TRANSLATIONS
+        field = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)")
+        mismatches = []
+        for zh, en in TRANSLATIONS.items():
+            if field.findall(zh) and set(field.findall(zh)) != set(field.findall(en)):
+                mismatches.append(zh)
+        self.assertEqual([], mismatches, f"placeholder name mismatch en vs zh: {mismatches}")
+
+    def test_app_default_language_is_english(self):
+        import tempfile
+        from pathlib import Path
+        from automatic_transfer_station.i18n import load_language
+        missing = Path(tempfile.mkdtemp()) / "nope.json"
+        self.assertEqual("en", load_language(missing))
+
+
 if __name__ == "__main__":
     unittest.main()
