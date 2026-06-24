@@ -296,8 +296,8 @@ class ObjectivePanel(QGroupBox):
         combo = self._register("objectivePortCombo", QComboBox())
         refresh = self._register("objectiveRefreshPorts", QPushButton(self._tr("刷新端口")))
         self._rt.text(refresh, "刷新端口")
-        connect = self._register("objectiveConnect", QPushButton(self._tr("连接")))
-        self._rt.text(connect, "连接")
+        connect = self._register("objectiveConnect", QPushButton(self._tr("连接", context="objective")))
+        self._rt.text(connect, "连接", context="objective")
         read = self._register("objectiveReadPosition", QPushButton(self._tr("读取位置")))
         self._rt.text(read, "读取位置")
         status = self._register("objectiveComStatusLabel", QLabel(self._tr("物镜串口未连接")))
@@ -349,7 +349,7 @@ class ObjectivePanel(QGroupBox):
             self._set_com_status(self._tr("物镜串口已断开"))
             self._set_link_state(False)
             if "objectiveConnect" in self.controls:
-                self.controls["objectiveConnect"].setText(self._tr("连接"))
+                self.controls["objectiveConnect"].setText(self._tr("连接", context="objective"))
             return
         self.connect_selected_port()
 

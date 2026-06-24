@@ -47,6 +47,28 @@ class TranslatorTests(unittest.TestCase):
         t.set_language("en")
         self.assertEqual(["en"], saved)
 
+    def test_context_disambiguation_en(self):
+        """Context key wins over the plain table when context is given."""
+        t = self.Translator(
+            lang="en",
+            table={"连接": "Connection"},
+            ctx_table={("objective", "连接"): "Connect"},
+        )
+        # Without context → plain table
+        self.assertEqual("Connection", t.tr("连接"))
+        # With context → context override
+        self.assertEqual("Connect", t.tr("连接", "objective"))
+
+    def test_context_disambiguation_zh_passthrough(self):
+        """ZH mode always returns the source string regardless of context."""
+        t = self.Translator(
+            lang="zh",
+            table={"连接": "Connection"},
+            ctx_table={("objective", "连接"): "Connect"},
+        )
+        self.assertEqual("连接", t.tr("连接"))
+        self.assertEqual("连接", t.tr("连接", "objective"))
+
 
 class LanguagePersistenceTests(unittest.TestCase):
     def setUp(self):

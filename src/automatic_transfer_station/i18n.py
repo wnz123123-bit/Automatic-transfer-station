@@ -10,6 +10,10 @@ from .json_store import atomic_write_json
 
 TRANSLATIONS: dict[str, str] = {}
 
+CONTEXT_TRANSLATIONS: dict[tuple[str, str], str] = {
+    ("objective", "连接"): "Connect",
+}
+
 TRANSLATIONS.update({
     # main_window — static widget text
     "显微镜调整": "Microscope adjust",
@@ -210,9 +214,6 @@ TRANSLATIONS.update({
     "当前物镜: {label} (孔位 {position})": "Current objective: {label} (slot {position})",
     "物镜切换失败: {error}": "Objective switch failed: {error}",
     "物镜位置读取失败: {error}": "Objective position read failed: {error}",
-    # objective_panel — _apply_position unknown label
-    # ("未知" already in TRANSLATIONS from main_window)
-    "当前物镜: {label} (孔位 {position}) — 读取完成": "Current objective: {label} (slot {position})",
     # gamepad_panel — static widget text
     "手柄控制": "Gamepad control",
     "启用手柄": "Enable gamepad",
@@ -354,9 +355,15 @@ TRANSLATIONS.update({
 
 
 class Translator:
-    def __init__(self, lang: str = "en", table: dict[str, str] | None = None):
+    def __init__(
+        self,
+        lang: str = "en",
+        table: dict[str, str] | None = None,
+        ctx_table: dict[tuple[str, str], str] | None = None,
+    ):
         self._lang = lang if lang in ("en", "zh") else "en"
         self._table = TRANSLATIONS if table is None else table
+        self._ctx_table = CONTEXT_TRANSLATIONS if ctx_table is None else ctx_table
         self._observers: list[Callable[[], None]] = []
         self._saver: Callable[[str], None] | None = None
 
@@ -364,9 +371,13 @@ class Translator:
     def lang(self) -> str:
         return self._lang
 
-    def tr(self, zh: str) -> str:
+    def tr(self, zh: str, context: str | None = None) -> str:
         if self._lang == "zh":
             return zh
+        if context is not None:
+            ctx = self._ctx_table.get((context, zh))
+            if ctx is not None:
+                return ctx
         return self._table.get(zh, zh)
 
     def initialize(self, lang: str) -> None:
@@ -395,8 +406,8 @@ class Translator:
 translator = Translator()
 
 
-def tr(zh: str) -> str:
-    return translator.tr(zh)
+def tr(zh: str, context: str | None = None) -> str:
+    return translator.tr(zh, context)
 
 
 def load_language(path: Path | None = None, default: str = "en") -> str:
@@ -425,23 +436,23 @@ class Retranslator:
         fn()
         self._apply.append(fn)
 
-    def text(self, widget, zh: str) -> None:
-        self._add(lambda: widget.setText(self._translator.tr(zh)))
+    def text(self, widget, zh: str, context: str | None = None) -> None:
+        self._add(lambda: widget.setText(self._translator.tr(zh, context)))
 
-    def title(self, widget, zh: str) -> None:
+    def title(self, widget, zh: str, context: str | None = None) -> None:
         setter = getattr(widget, "setTitle", None) or widget.setWindowTitle
-        self._add(lambda: setter(self._translator.tr(zh)))
+        self._add(lambda: setter(self._translator.tr(zh, context)))
 
-    def tooltip(self, widget, zh: str) -> None:
-        self._add(lambda: widget.setToolTip(self._translator.tr(zh)))
+    def tooltip(self, widget, zh: str, context: str | None = None) -> None:
+        self._add(lambda: widget.setToolTip(self._translator.tr(zh, context)))
 
-    def placeholder(self, widget, zh: str) -> None:
-        self._add(lambda: widget.setPlaceholderText(self._translator.tr(zh)))
+    def placeholder(self, widget, zh: str, context: str | None = None) -> None:
+        self._add(lambda: widget.setPlaceholderText(self._translator.tr(zh, context)))
 
-    def items(self, combo, zh_list: list[str]) -> None:
+    def items(self, combo, zh_list: list[str], context: str | None = None) -> None:
         def apply():
             for i, zh in enumerate(zh_list):
-                combo.setItemText(i, self._translator.tr(zh))
+                combo.setItemText(i, self._translator.tr(zh, context))
         self._add(apply)
 
     def custom(self, apply_fn: Callable[[], None]) -> None:

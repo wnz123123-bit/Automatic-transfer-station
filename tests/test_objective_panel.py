@@ -527,6 +527,20 @@ class ObjectivePanelI18nTests(unittest.TestCase):
         finally:
             translator.initialize("zh")
 
+    def test_connect_button_is_connect_not_connection_in_english(self):
+        """The connect button must read 'Connect', not 'Connection' (homograph fix)."""
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            panel = self._make_panel()
+            panel.open_com_dialog()
+            get_app().processEvents()
+            connect_btn = panel.controls["objectiveConnect"]
+            self.assertEqual("Connect", connect_btn.text())
+        finally:
+            translator.initialize("zh")
+
 
 if __name__ == "__main__":
     unittest.main()
