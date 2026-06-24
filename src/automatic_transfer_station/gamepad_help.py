@@ -16,6 +16,8 @@ in-game control diagrams do.
 
 from __future__ import annotations
 
+from .i18n import tr as _tr
+
 # Face-button brand colours (Y darkened from bright yellow so it stays legible
 # on white). Shared between the drawn buttons and the coloured name chips.
 _COL_Y = "#b8860b"
@@ -75,22 +77,24 @@ def build_f710_help_svg() -> str:
     p.append('<rect x="0" y="0" width="1000" height="700" rx="14" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>')
 
     # Header.
-    p.append(_text(30, 40, "Logitech F710 手柄按键说明", size=22, weight="700"))
-    p.append(_text(30, 63, "MODE 拨到 X · 摇杆推得越多越快（比例速度）", size=14, fill=_SUB))
+    p.append(_text(30, 40, _tr("Logitech F710 手柄按键说明"), size=22, weight="700"))
+    p.append(_text(30, 63, _tr("MODE 拨到 X · 摇杆推得越多越快（比例速度）"), size=14, fill=_SUB))
 
     # Two views, matching the official layout: a top view for the face controls
     # and a front view for the shoulder buttons + MODE (which live on the front
     # edge and cannot be placed unambiguously on a top-down drawing).
-    p.append(_text(40, 98, "俯视图（正面）", size=15, weight="700", fill=_SUB))
-    p.append(_text(40, 410, "前视图（肩键 / 扳机一侧）", size=15, weight="700", fill=_SUB))
+    p.append(_text(40, 98, _tr("俯视图（正面）"), size=15, weight="700", fill=_SUB))
+    p.append(_text(40, 410, _tr("前视图（肩键 / 扳机一侧）"), size=15, weight="700", fill=_SUB))
 
     _top_view(p)
     _front_view(p)
 
     # Footer notes.
-    p.append(_text(500, 650, "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）",
+    p.append(_text(500, 650,
+                   _tr("可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）"),
                    size=13, anchor="middle", fill=_SUB))
-    p.append(_text(500, 674, "当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停",
+    p.append(_text(500, 674,
+                   _tr("当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停"),
                    size=13, anchor="middle", fill=_SUB))
 
     p.append('</svg>')
@@ -133,26 +137,26 @@ def _top_view(p: list[str]) -> None:
     p.append(f'<rect x="516" y="181" width="18" height="9" rx="4" fill="{_EDGE}"/>')   # START
 
     # Callouts.
-    p.append(_callout(250, 128, "end", "BACK", ["急停（所有轴立即停止）"], (258, 122), (466, 185)))
-    p.append(_callout(250, 196, "end", "十字键",
-                      ["↑ / ↓  选中轴 单步 ±", "← / →  步长档 减小 / 增大"],
+    p.append(_callout(250, 128, "end", "BACK", [_tr("急停（所有轴立即停止）")], (258, 122), (466, 185)))
+    p.append(_callout(250, 196, "end", _tr("十字键"),
+                      [_tr("↑ / ↓  选中轴 单步 ±"), _tr("← / →  步长档 减小 / 增大")],
                       (258, 190), (418, 198)))
-    p.append(_callout(250, 280, "end", "左摇杆", ["X3（左右）/ Y3（前后） 连续"], (258, 274), (440, 248)))
+    p.append(_callout(250, 280, "end", _tr("左摇杆"), [_tr("X3（左右）/ Y3（前后） 连续")], (258, 274), (440, 248)))
 
-    p.append(_callout(750, 128, "start", "START", ["启用 / 停用手柄"], (742, 122), (534, 185)))
+    p.append(_callout(750, 128, "start", "START", [_tr("启用 / 停用手柄")], (742, 122), (534, 185)))
     # Face-button callout with coloured Y/A/X/B chips on the name line.
     p.append(_leader(742, 190, 590, 194))
     p.append(
         f'<text x="750" y="196" font-family="{_FONT}" font-size="16" font-weight="700" text-anchor="start">'
-        f'<tspan fill="{_INK}">面键 </tspan>'
+        f'<tspan fill="{_INK}">{_esc(_tr("面键 "))}</tspan>'
         f'<tspan fill="{_COL_Y}">Y</tspan><tspan fill="{_INK}">/</tspan>'
         f'<tspan fill="{_COL_A}">A</tspan><tspan fill="{_INK}">/</tspan>'
         f'<tspan fill="{_COL_X}">X</tspan><tspan fill="{_INK}">/</tspan>'
         f'<tspan fill="{_COL_B}">B</tspan>'
         f'</text>'
     )
-    p.append(_text(750, 214, "选轴：Y=上  A=下  X=左  B=右", size=13, fill=_SUB))
-    p.append(_callout(750, 280, "start", "右摇杆", ["X2（左右）/ Y2（前后） 连续"], (742, 274), (576, 248)))
+    p.append(_text(750, 214, _tr("选轴：Y=上  A=下  X=左  B=右"), size=13, fill=_SUB))
+    p.append(_callout(750, 280, "start", _tr("右摇杆"), [_tr("X2（左右）/ Y2（前后） 连续")], (742, 274), (576, 248)))
 
 
 def _front_view(p: list[str]) -> None:
@@ -180,12 +184,12 @@ def _front_view(p: list[str]) -> None:
     p.append(f'<circle cx="500" cy="500" r="3" fill="{dark}"/>')
 
     # Callouts.
-    p.append(_callout(250, 452, "end", "LB", ["载玻片Z 下"], (258, 452), (368, 456)))
-    p.append(_callout(250, 512, "end", "LT", ["显微镜Z 下", "轻按单步 · 长按连续 ≤4mm/s"], (258, 512), (376, 510)))
-    p.append(_callout(750, 452, "start", "RB", ["载玻片Z 上"], (742, 452), (632, 456)))
-    p.append(_callout(750, 512, "start", "RT", ["显微镜Z 上", "轻按单步 · 长按连续 ≤4mm/s"], (742, 512), (624, 510)))
+    p.append(_callout(250, 452, "end", "LB", [_tr("载玻片Z 下")], (258, 452), (368, 456)))
+    p.append(_callout(250, 512, "end", "LT", [_tr("显微镜Z 下"), _tr("轻按单步 · 长按连续 ≤4mm/s")], (258, 512), (376, 510)))
+    p.append(_callout(750, 452, "start", "RB", [_tr("载玻片Z 上")], (742, 452), (632, 456)))
+    p.append(_callout(750, 512, "start", "RT", [_tr("显微镜Z 上"), _tr("轻按单步 · 长按连续 ≤4mm/s")], (742, 512), (624, 510)))
     p.append(_leader(500, 512, 500, 578))
-    p.append(_text(500, 599, "MODE 拨到 X 模式", size=15, weight="700", anchor="middle"))
+    p.append(_text(500, 599, _tr("MODE 拨到 X 模式"), size=15, weight="700", anchor="middle"))
 
 
 def render_help_pixmap(scale: float = 2.0):

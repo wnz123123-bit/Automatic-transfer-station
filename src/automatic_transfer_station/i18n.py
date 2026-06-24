@@ -187,6 +187,103 @@ TRANSLATIONS.update({
 })
 
 TRANSLATIONS.update({
+    # objective_panel — static widget text
+    "物镜选择": "Objective selector",
+    "物镜串口: 未连接": "Objective port: disconnected",
+    "物镜串口: 已连接": "Objective port: connected",
+    "当前物镜: 未读取": "Current objective: not read",
+    "物镜 COM 设置": "Objective COM settings",
+    "读取位置": "Read position",
+    "物镜串口未连接": "Objective port not connected",
+    # objective_panel — dynamic messages
+    "端口已刷新": "Ports refreshed",
+    "物镜串口已断开": "Objective port disconnected",
+    "断开": "Disconnect",
+    "已连接 {port}": "Connected {port}",
+    "连接失败: {error}": "Connection failed: {error}",
+    "未配置物镜串口工厂": "Objective port factory not configured",
+    "正在连接，请稍候": "Connecting, please wait…",
+    "操作进行中，请稍候": "Operation in progress, please wait…",
+    "正在连接 {port} ...": "Connecting {port}…",
+    "物镜切换中，请等待": "Switching objective, please wait…",
+    "物镜切换中: {label} (孔位 {position})": "Switching objective: {label} (slot {position})",
+    "当前物镜: {label} (孔位 {position})": "Current objective: {label} (slot {position})",
+    "物镜切换失败: {error}": "Objective switch failed: {error}",
+    "物镜位置读取失败: {error}": "Objective position read failed: {error}",
+    # objective_panel — _apply_position unknown label
+    # ("未知" already in TRANSLATIONS from main_window)
+    "当前物镜: {label} (孔位 {position}) — 读取完成": "Current objective: {label} (slot {position})",
+    # gamepad_panel — static widget text
+    "手柄控制": "Gamepad control",
+    "启用手柄": "Enable gamepad",
+    "手柄已启用": "Gamepad armed",
+    "START=启用/停用 · BACK=急停 · 点 ? 查看完整按键说明":
+        "START=arm/disarm · BACK=e-stop · click ? for full key reference",
+    "查看手柄按键映射": "View gamepad key mapping",
+    "手柄按键说明 (Logitech F710)": "Gamepad Key Reference (Logitech F710)",
+    "已启用": "Armed",
+    "未启用": "Disarmed",
+    "选中:": "Selected:",
+    "步长:": "Step:",
+    # gamepad_panel — GAMEPAD_MAPPING_TEXT (used as accessibleDescription / fallback text)
+    "START：启用 / 停用手柄\n"
+    "BACK：急停（所有轴立即停止）\n\n"
+    "左摇杆：X3（左右）/ Y3（前后）连续移动\n"
+    "右摇杆：X2（左右）/ Y2（前后）连续移动\n"
+    "（摇杆为比例速度，推得越多越快）\n\n"
+    "方向键 ↑ / ↓：「当前选中轴」按步长单步 + / −（仅单步，不连续）\n"
+    "方向键 ← / →：步长档 减小 / 增大\n\n"
+    "四个面键 选轴（按设备图布局的上下左右方向）：\n"
+    "  Y=上  A=下  X=左  B=右\n\n"
+    "扳机 LT / RT：显微镜 Z 下 / 上（轻按单步，长按连续；固定上限 4 mm/s 比例，与界面速度无关）\n"
+    "肩键 LB / RB：载玻片 Z 下 / 上（轻按单步，长按连续）\n\n"
+    "可选轴（面键 2D 选择）：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1\n"
+    "（显微镜Z 由扳机 LT/RT 控制，不在可选轴内）\n"
+    "当前选中轴会在左侧设备图横幅与高亮上显示（含步长与当前坐标）。":
+        "START: arm / disarm gamepad\n"
+        "BACK: emergency stop (all axes stop immediately)\n\n"
+        "Left stick: X3 (left-right) / Y3 (front-back) continuous\n"
+        "Right stick: X2 (left-right) / Y2 (front-back) continuous\n"
+        "(sticks are proportional speed — push further for faster)\n\n"
+        "D-pad ↑ / ↓: selected axis step + / − (single step only, not continuous)\n"
+        "D-pad ← / →: step size smaller / larger\n\n"
+        "Face buttons select axis (by position on device diagram):\n"
+        "  Y=up  A=down  X=left  B=right\n\n"
+        "Triggers LT / RT: microscope Z down / up (tap=step, hold=continuous; capped at 4 mm/s proportional, independent of UI speed)\n"
+        "Bumpers LB / RB: slide Z down / up (tap=step, hold=continuous)\n\n"
+        "Selectable axes (face-button 2D selection): X3 / Y3 / X2 / Y2 / R / Slide Z / X1 / Y1\n"
+        "(Microscope Z is controlled by triggers LT/RT, not in the selectable set)\n"
+        "The currently selected axis is shown in the left-panel stage banner and highlight (including step and coordinate).",
+    # gamepad_help — SVG labels
+    "Logitech F710 手柄按键说明": "Logitech F710 Gamepad Key Reference",
+    "MODE 拨到 X · 摇杆推得越多越快（比例速度）":
+        "Set MODE to X · sticks are proportional speed (push further = faster)",
+    "俯视图（正面）": "Top view (face controls)",
+    "前视图（肩键 / 扳机一侧）": "Front view (shoulder / trigger edge)",
+    "急停（所有轴立即停止）": "E-stop (all axes stop immediately)",
+    "十字键": "D-pad",
+    "↑ / ↓  选中轴 单步 ±": "↑ / ↓  selected axis step ±",
+    "← / →  步长档 减小 / 增大": "← / →  step size smaller / larger",
+    "左摇杆": "Left stick",
+    "X3（左右）/ Y3（前后） 连续": "X3 (L-R) / Y3 (F-B) continuous",
+    "启用 / 停用手柄": "Arm / disarm gamepad",
+    "面键 ": "Face btn ",
+    "选轴：Y=上  A=下  X=左  B=右": "Select axis: Y=up  A=down  X=left  B=right",
+    "右摇杆": "Right stick",
+    "X2（左右）/ Y2（前后） 连续": "X2 (L-R) / Y2 (F-B) continuous",
+    "载玻片Z 下": "Slide Z down",
+    "显微镜Z 下": "Scope Z down",
+    "轻按单步 · 长按连续 ≤4mm/s": "tap=step · hold=continuous ≤4mm/s",
+    "载玻片Z 上": "Slide Z up",
+    "显微镜Z 上": "Scope Z up",
+    "MODE 拨到 X 模式": "Set MODE to X",
+    "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）":
+        "Selectable axes: X3 / Y3 / X2 / Y2 / R / Slide Z / X1 / Y1 (Scope Z by triggers LT/RT)",
+    "当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停":
+        "Selected axis shown in stage banner (with step & coord) · Space key is also e-stop",
+})
+
+TRANSLATIONS.update({
     "温度控制": "Temperature Control",
     "连接": "Connection",
     "刷新端口": "Refresh ports",

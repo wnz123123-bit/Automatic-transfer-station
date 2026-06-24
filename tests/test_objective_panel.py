@@ -485,5 +485,48 @@ class ObjectiveDefaultPortTests(unittest.TestCase):
         self.assertEqual("COM5", panel.initial_port)
 
 
+class ObjectivePanelI18nTests(unittest.TestCase):
+    """Verify that the objective panel renders English labels when the translator
+    is set to English."""
+
+    def setUp(self):
+        get_app()
+
+    def _make_panel(self):
+        from automatic_transfer_station.objective_panel import ObjectivePanel
+
+        registry = {}
+        return ObjectivePanel(
+            RecordingNosepieceController(),
+            register=lambda name, widget: registry.setdefault(name, widget),
+            port_lister=lambda: [],
+            initial_port="COM7",
+        )
+
+    def test_title_label_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            panel = self._make_panel()
+            title = panel.controls["objectiveTitleLabel"]
+            self.assertEqual("Objective selector", title.text())
+        finally:
+            translator.initialize("zh")
+
+    def test_com_dialog_buttons_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            panel = self._make_panel()
+            panel.open_com_dialog()
+            get_app().processEvents()
+            refresh_btn = panel.controls["objectiveRefreshPorts"]
+            self.assertEqual("Refresh ports", refresh_btn.text())
+        finally:
+            translator.initialize("zh")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -291,5 +291,52 @@ class GamepadPanelTests(unittest.TestCase):
         self.assertIn(False, armed_events, "on_armed_changed(False) must be fired by disarm()")
 
 
+class GamepadPanelI18nTests(unittest.TestCase):
+    """Verify that the gamepad panel renders English labels when the translator
+    is set to English."""
+
+    def setUp(self):
+        get_app()
+
+    def _make_panel(self):
+        from automatic_transfer_station.gamepad_panel import GamepadPanel
+
+        ctrl = RecMotion()
+        controls = {}
+        panel = GamepadPanel(
+            register=lambda n, w: controls.setdefault(n, w),
+            motion_queue_provider=lambda: InlineQueue(),
+            motion_controller=ctrl,
+            stop_all=ctrl.stop_all,
+            speed_fn=lambda axis: 100.0,
+            step_fn=lambda axis: 50,
+            set_step_fn=lambda axis, v: None,
+            direction_fn=lambda axis, sign: sign,
+            highlight_fn=lambda axis: None,
+        )
+        return panel, controls
+
+    def test_enable_button_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            panel, controls = self._make_panel()
+            btn = controls["btnGamepadEnable"]
+            self.assertEqual("Enable gamepad", btn.text())
+        finally:
+            translator.initialize("zh")
+
+    def test_group_title_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            panel, controls = self._make_panel()
+            self.assertEqual("Gamepad control", panel.title())
+        finally:
+            translator.initialize("zh")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,7 +54,11 @@ class GamepadPanel(QGroupBox):
                  step_fn, set_step_fn, direction_fn, highlight_fn, on_armed_changed=None,
                  step_display_fn=None, info_fn=None, reader=None, clock=time.monotonic,
                  controller=None, poll_ms: int = 30, parent=None):
-        super().__init__("手柄控制", parent)
+        from .i18n import translator, Retranslator, tr
+        self._tr = tr
+        self._rt = Retranslator(translator)
+        super().__init__(tr("手柄控制"), parent)
+        self._rt.title(self, "手柄控制")
         self._register = register
         self._queue_provider = motion_queue_provider
         self._motion_controller = motion_controller
@@ -78,13 +82,13 @@ class GamepadPanel(QGroupBox):
 
     def _build_ui(self):
         row = QHBoxLayout(self)
-        self._enable_btn = self._reg("btnGamepadEnable", QPushButton("启用手柄"))
+        self._enable_btn = self._reg("btnGamepadEnable", QPushButton(self._tr("启用手柄")))
         self._enable_btn.setCheckable(True)
-        self._enable_btn.setToolTip("START=启用/停用 · BACK=急停 · 点 ? 查看完整按键说明")
+        self._rt.tooltip(self._enable_btn, "START=启用/停用 · BACK=急停 · 点 ? 查看完整按键说明")
         self._enable_btn.clicked.connect(self._toggle_from_ui)
         self._help_btn = self._reg("btnGamepadHelp", QPushButton("?"))
         self._help_btn.setFixedWidth(28)
-        self._help_btn.setToolTip("查看手柄按键映射")
+        self._rt.tooltip(self._help_btn, "查看手柄按键映射")
         self._help_btn.clicked.connect(self._show_mapping_help)
         self._hud = self._reg("gamepadHud", QLabel())
         row.addWidget(self._enable_btn)
@@ -94,14 +98,14 @@ class GamepadPanel(QGroupBox):
 
     def _show_mapping_help(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle("手柄按键说明 (Logitech F710)")
+        dlg.setWindowTitle(self._tr("手柄按键说明 (Logitech F710)"))
         layout = QVBoxLayout(dlg)
 
         image = QLabel()
         image.setAlignment(Qt.AlignCenter)
         # The full text is kept as the accessible description so screen readers
         # and assistive tooling still expose the mapping behind the figure.
-        image.setAccessibleDescription(GAMEPAD_MAPPING_TEXT)
+        image.setAccessibleDescription(self._tr(GAMEPAD_MAPPING_TEXT))
         try:
             image.setPixmap(render_help_pixmap())
         except Exception:
@@ -247,7 +251,7 @@ class GamepadPanel(QGroupBox):
         from .axis_calibration import AXIS_LABELS
         axis = SELECTOR_AXES[self._controller.selected_idx]
         armed = self._controller.enabled
-        state = "已启用" if armed else "未启用"
+        state = self._tr("已启用") if armed else self._tr("未启用")
         detail = None
         if self._info_fn is not None:
             try:
@@ -255,10 +259,11 @@ class GamepadPanel(QGroupBox):
             except Exception:
                 detail = None
         if detail is None:
-            detail = f"步长:{self._step_display_fn(axis)}"
-        text = f"{state} · 选中:{AXIS_LABELS.get(axis, axis)} · {detail}"
+            detail = f"{self._tr('步长:')}{self._step_display_fn(axis)}"
+        selected_label = self._tr("选中:")
+        text = f"{state} · {selected_label}{AXIS_LABELS.get(axis, axis)} · {detail}"
         self._hud.setText(text)
         self._hud.setToolTip(text)  # full text always recoverable on hover if the row clips
         # Make the armed state unmistakable: green button when live, neutral when idle.
-        self._enable_btn.setText("手柄已启用" if armed else "启用手柄")
+        self._enable_btn.setText(self._tr("手柄已启用") if armed else self._tr("启用手柄"))
         self._enable_btn.setStyleSheet(_ENABLE_STYLE_ARMED if armed else _ENABLE_STYLE_IDLE)

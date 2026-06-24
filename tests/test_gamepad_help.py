@@ -46,5 +46,31 @@ class F710HelpRenderTests(unittest.TestCase):
         self.assertGreater(pm.height(), 0)
 
 
+class F710HelpSvgI18nTests(unittest.TestCase):
+    """Verify that the help diagram renders English labels when the translator
+    is set to English."""
+
+    def test_header_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            svg = build_f710_help_svg()
+            self.assertIn("F710 Gamepad Key Reference", svg)
+        finally:
+            translator.initialize("zh")
+
+    def test_callout_labels_in_english(self):
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            svg = build_f710_help_svg()
+            self.assertIn("Left stick", svg)
+            self.assertIn("Right stick", svg)
+        finally:
+            translator.initialize("zh")
+
+
 if __name__ == "__main__":
     unittest.main()
