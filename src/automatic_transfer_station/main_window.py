@@ -865,11 +865,31 @@ class MainWindow(QMainWindow):
         self.resize(1720, 860)
         self.setMinimumSize(1320, 760)
 
+        # Set True only when the user confirms Exit; the window-manager X is refused
+        # unless this is set (see closeEvent), so the program can only quit through
+        # the deliberate Exit button — which guarantees the heater-off + port-close
+        # shutdown runs.
+        self._exit_requested = False
+
         # Version pinned to the bottom-right corner (status-bar permanent widget is
         # right-aligned, so it stays put regardless of transient status messages).
         version_label = self._register("versionLabel", QLabel(f"v{__version__}"))
         version_label.setStyleSheet("color:#8a96a3; padding:0 8px;")
         self.statusBar().addPermanentWidget(version_label)
+
+        # Exit button, bottom-right next to the version. The OS window X is disabled
+        # (closeEvent refuses a spontaneous close); this is the only way to quit, and
+        # it always runs the heater-off + close-all-ports shutdown after confirmation.
+        exit_button = self._register("exitButton", QPushButton("退出 Exit"))
+        exit_button.setStyleSheet(
+            "QPushButton{background:#b42318;color:#ffffff;font-weight:800;border:none;"
+            "border-radius:5px;padding:3px 14px;margin:0 4px;}"
+            "QPushButton:hover{background:#9a1d14;}"
+            "QPushButton:pressed{background:#7a1711;}"
+        )
+        exit_button.setCursor(Qt.PointingHandCursor)
+        exit_button.clicked.connect(self._request_exit)
+        self.statusBar().addPermanentWidget(exit_button)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -3055,6 +3075,28 @@ class MainWindow(QMainWindow):
             except MotionControllerError as exc:
                 self.statusBar().showMessage(str(exc))
 
+    def _request_exit(self) -> None:
+        """The only sanctioned way to quit: confirm, then close (which runs the
+        heater-off + close-all-ports shutdown in closeEvent)."""
+        reply = QMessageBox.question(
+            self,
+            "确认退出",
+            "确认退出程序？\n退出后将关闭加热（ENABLE=0）并断开所有端口。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._exit_requested = True
+            self.close()
+
     def closeEvent(self, event) -> None:
+        # Refuse the OS window-manager X (a spontaneous close) unless the user went
+        # through the Exit button. This keeps a stray click on the title-bar X from
+        # quitting the app; a programmatic close() (Exit, smoke-exit, tests) is not
+        # spontaneous and proceeds normally, so the shutdown path is unchanged for it.
+        if event.spontaneous() and not self._exit_requested:
+            event.ignore()
+            self.statusBar().showMessage("窗口关闭按钮已禁用：请点击右下角「退出 Exit」按钮退出程序")
+            return
         self._prepare_for_close()
         super().closeEvent(event)

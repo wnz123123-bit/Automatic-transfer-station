@@ -3242,6 +3242,90 @@ class Package7SafetyPathTests(unittest.TestCase):
         # Error message should appear in the status bar.
         self.assertIn("heater_off_failed", window.statusBar().currentMessage())
 
+    def test_heat_warning_banner_present(self):
+        """The temperature panel must show a prominent heating-hazard banner."""
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        warning = window.controls.get("tempHeatWarning")
+        self.assertIsNotNone(warning, "heating warning banner must exist")
+        self.assertIn("高温", warning.text())
+
+    def test_exit_button_present(self):
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        self.assertIsNotNone(window.controls.get("exitButton"), "Exit button must exist")
+
+    def test_window_x_close_is_refused_until_exit(self):
+        """A spontaneous close (the OS title-bar X) must be ignored and must NOT run
+        the shutdown, so the app keeps running until the Exit button is used."""
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        disconnect_calls = []
+        window.temperature_panel.disconnect_from_device = lambda: disconnect_calls.append("d")
+
+        class FakeEvent:
+            def __init__(self):
+                self.ignored = False
+                self.accepted = False
+
+            def spontaneous(self):
+                return True
+
+            def ignore(self):
+                self.ignored = True
+
+            def accept(self):
+                self.accepted = True
+
+        event = FakeEvent()
+        window.closeEvent(event)
+
+        self.assertTrue(event.ignored, "spontaneous X close must be ignored")
+        self.assertEqual([], disconnect_calls, "shutdown must NOT run on a refused X close")
+
+    def test_request_exit_confirmed_closes_and_disconnects(self):
+        """Confirming the Exit dialog must close the window and run the heater-off /
+        port-close shutdown (disconnect_from_device)."""
+        from automatic_transfer_station import main_window as mw
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        disconnect_calls = []
+        window.temperature_panel.disconnect_from_device = lambda: disconnect_calls.append("d")
+
+        original_question = mw.QMessageBox.question
+        mw.QMessageBox.question = staticmethod(lambda *a, **k: mw.QMessageBox.Yes)
+        try:
+            window._request_exit()
+        finally:
+            mw.QMessageBox.question = original_question
+
+        self.assertTrue(window._exit_requested, "confirming Exit must set the exit flag")
+        self.assertEqual(["d"], disconnect_calls, "Exit must run temperature disconnect")
+
     # ---- Test 5: changeEvent disarm must not be guarded by isActiveWindow ----
 
     def test_changeEvent_disarms_gamepad_unconditionally_when_window_not_active(self):
