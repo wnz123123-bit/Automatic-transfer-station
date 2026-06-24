@@ -1,4 +1,7 @@
 import unittest
+import tempfile
+import os
+from pathlib import Path
 
 
 class TranslatorTests(unittest.TestCase):
@@ -43,6 +46,39 @@ class TranslatorTests(unittest.TestCase):
         self.assertEqual([], saved)
         t.set_language("en")
         self.assertEqual(["en"], saved)
+
+
+class LanguagePersistenceTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.path = Path(self.dir) / "ui_settings.json"
+
+    def tearDown(self):
+        for p in Path(self.dir).glob("*"):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        os.rmdir(self.dir)
+
+    def test_default_when_missing(self):
+        from automatic_transfer_station.i18n import load_language
+        self.assertEqual("en", load_language(self.path))
+
+    def test_round_trip(self):
+        from automatic_transfer_station.i18n import load_language, save_language
+        save_language("zh", self.path)
+        self.assertEqual("zh", load_language(self.path))
+
+    def test_corrupt_file_falls_back_to_default(self):
+        from automatic_transfer_station.i18n import load_language
+        self.path.write_text("{not json", encoding="utf-8")
+        self.assertEqual("en", load_language(self.path))
+
+    def test_invalid_value_falls_back(self):
+        from automatic_transfer_station.i18n import load_language
+        self.path.write_text('{"language": "fr"}', encoding="utf-8")
+        self.assertEqual("en", load_language(self.path))
 
 
 if __name__ == "__main__":

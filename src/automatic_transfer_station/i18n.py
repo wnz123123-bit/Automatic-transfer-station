@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Callable
+
+from .paths import UI_SETTINGS_PATH
+from .json_store import atomic_write_json
 
 
 TRANSLATIONS: dict[str, str] = {}
@@ -50,3 +55,19 @@ translator = Translator()
 
 def tr(zh: str) -> str:
     return translator.tr(zh)
+
+
+def load_language(path: Path | None = None, default: str = "en") -> str:
+    path = UI_SETTINGS_PATH if path is None else path
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        lang = data.get("language")
+    except (OSError, ValueError, AttributeError):
+        return default
+    return lang if lang in ("en", "zh") else default
+
+
+def save_language(lang: str, path: Path | None = None) -> None:
+    if lang not in ("en", "zh"):
+        return
+    atomic_write_json(UI_SETTINGS_PATH if path is None else path, {"language": lang})
