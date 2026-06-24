@@ -2097,6 +2097,24 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual("zh", translator.lang)
         self.assertEqual("EN", toggle.text())
 
+    def test_main_window_translates_to_english(self):
+        from automatic_transfer_station.main_window import MainWindow
+        from automatic_transfer_station.i18n import translator
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        translator.set_language("en")
+        try:
+            # calibration button text becomes English
+            self.assertEqual("Coordinate calibration", window.controls["btnCoordinateCalibration"].text())
+            # microscope section title becomes English
+            self.assertEqual("Microscope adjust", window.controls["stageMicroscopeTitle"].text())
+        finally:
+            translator.initialize("zh")
+
 
 class Package6SafetyAffordanceTests(unittest.TestCase):
     """Package 6: GUI safety affordances."""

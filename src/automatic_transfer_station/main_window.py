@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QKeySequence, QShortcut
 
 from . import __version__
+from .i18n import tr
 from .axis_position_store import AxisPositionStore, DEFAULT_POSITION_STORE_PATH
 from .axis_calibration import (
     AXIS_LABELS,
@@ -415,8 +416,8 @@ class MotionPadButton(QPushButton):
         super().__init__("")
         self.symbol = symbol
         self.setProperty("motionSymbol", symbol)
-        self.setAccessibleName(self._ACCESSIBLE.get(symbol, symbol))
-        self.setToolTip(self._TOOLTIPS.get(symbol, symbol))
+        self.setAccessibleName(tr(self._ACCESSIBLE.get(symbol, symbol)))
+        self.setToolTip(tr(self._TOOLTIPS.get(symbol, symbol)))
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -961,7 +962,7 @@ class MainWindow(QMainWindow):
             if app is not None:
                 app.applicationStateChanged.connect(self._on_application_state_changed)
 
-        self.statusBar().showMessage("真实硬件模式 - 运动控制未打开")
+        self.statusBar().showMessage(tr("真实硬件模式 - 运动控制未打开"))
         self._report_persistence_warnings()
         self._load_cached_position_labels()
 
@@ -988,13 +989,13 @@ class MainWindow(QMainWindow):
         skipped = getattr(self.runtime_calibration_store, "skipped", None)
         if skipped:
             labels = ", ".join(AXIS_LABELS.get(axis, f"Axis{axis}") for axis in skipped)
-            warnings.append(f"轴标定文件中 {labels} 超出范围已忽略，改用内置标定")
+            warnings.append(tr("轴标定文件中 {labels} 超出范围已忽略，改用内置标定").format(labels=labels))
         if getattr(self.runtime_calibration_store, "schema_warning", False):
-            warnings.append("轴标定文件版本不受支持，改用内置标定")
+            warnings.append(tr("轴标定文件版本不受支持，改用内置标定"))
         if getattr(self.position_store, "schema_warning", False):
-            warnings.append("位置缓存文件版本不受支持，已忽略")
+            warnings.append(tr("位置缓存文件版本不受支持，已忽略"))
         if getattr(self.microscope_position_store, "schema_warning", False):
-            warnings.append("显微镜点位文件版本不受支持，已忽略")
+            warnings.append(tr("显微镜点位文件版本不受支持，已忽略"))
 
         if warnings:
             self.statusBar().showMessage("；".join(warnings))
@@ -1046,9 +1047,10 @@ class MainWindow(QMainWindow):
         section_layout = QVBoxLayout(section)
         section_layout.setContentsMargins(0, 0, 0, 0)
         section_layout.setSpacing(8)
-        title = self._register("stageMicroscopeTitle", QLabel("显微镜调整"))
+        title = self._register("stageMicroscopeTitle", QLabel())
         title.setMinimumHeight(18)
         title.setStyleSheet("color: #f6f8fb; font-weight: 800;")
+        self._retranslator.text(title, "显微镜调整")
         section_layout.addWidget(title)
         section_layout.addWidget(
             self._build_axis_card(
@@ -1114,7 +1116,11 @@ class MainWindow(QMainWindow):
         short = {"MicroscopeZ": "镜Z"}.get(axis, axis)
         button = self._register(f"axisHotspot{axis}", QPushButton(short, parent))
         button.setCursor(Qt.PointingHandCursor)
-        button.setToolTip(f"{axis} · {role}")
+        self._retranslator.custom(
+            lambda b=button, a=axis, r=role: b.setToolTip(
+                tr("{axis} · {role}").format(axis=a, role=tr(r))
+            )
+        )
         button.setStyleSheet(
             f"""
             QPushButton {{
@@ -1142,7 +1148,7 @@ class MainWindow(QMainWindow):
             """
         )
         parent.add_hotspot(button, label_x_pct, label_y_pct, tip_x_pct, tip_y_pct, 54, 30, color)
-        button.clicked.connect(lambda checked=False, axis=axis: self._set_motion_status(f"{axis} 已选中", "off"))
+        button.clicked.connect(lambda checked=False, axis=axis: self._set_motion_status(tr("{axis} 已选中").format(axis=axis), "off"))
 
     def _build_axis_control_panel(self) -> QWidget:
         panel = self._register("axisControlPanel", QFrame())
@@ -1172,9 +1178,11 @@ class MainWindow(QMainWindow):
         root.setSpacing(10)
 
         title_row = QHBoxLayout()
-        title = QLabel("轴控制面板")
+        title = QLabel()
         title.setStyleSheet("font-size: 18px; font-weight: 700; color: #142033;")
-        calibration_button = self._register("btnCoordinateCalibration", QPushButton("坐标标定"))
+        self._retranslator.text(title, "轴控制面板")
+        calibration_button = self._register("btnCoordinateCalibration", QPushButton())
+        self._retranslator.text(calibration_button, "坐标标定")
         calibration_button.setFixedHeight(28)
         calibration_button.setMinimumWidth(82)
         calibration_button.setStyleSheet(
@@ -1238,8 +1246,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.setAlignment(Qt.AlignTop)
-        heading = QLabel(title)
+        heading = QLabel()
         heading.setStyleSheet("font-size: 14px; font-weight: 800; color: #334154;")
+        self._retranslator.text(heading, title)
         layout.addWidget(heading)
         return section
 
@@ -1289,14 +1298,16 @@ class MainWindow(QMainWindow):
         header.setHorizontalSpacing(8)
         name_label = QLabel(axis_name)
         name_label.setStyleSheet(f"font-size: 18px; font-weight: 900; color: {color};")
-        role_label = QLabel(role)
+        role_label = QLabel()
         role_label.setStyleSheet("font-size: 13px; font-weight: 800; color: #2e3a47;")
+        self._retranslator.text(role_label, role)
         header.addWidget(name_label, 0, 0)
         header.addWidget(role_label, 0, 1)
         header_columns = 2
         if axis == 9:
             header_columns = 3
-            btn_home = self._register("btnAxis9Home", QPushButton("角度回零"))
+            btn_home = self._register("btnAxis9Home", QPushButton())
+            self._retranslator.text(btn_home, "角度回零")
             btn_home.setFixedHeight(24)
             btn_home.setMinimumWidth(76)
             btn_home.setStyleSheet(
@@ -1307,7 +1318,8 @@ class MainWindow(QMainWindow):
             header.addWidget(btn_home, 0, 2, Qt.AlignRight | Qt.AlignVCenter)
         elif axis == 4:
             header_columns = 3
-            continuous_button = self._register("btnZContinuousControl", QPushButton("连续控制"))
+            continuous_button = self._register("btnZContinuousControl", QPushButton())
+            self._retranslator.text(continuous_button, "连续控制")
             continuous_button.setFixedHeight(24)
             continuous_button.setMinimumWidth(76)
             continuous_button.setStyleSheet(
@@ -1347,8 +1359,9 @@ class MainWindow(QMainWindow):
                 position_row.addWidget(twist_button)
             header.addLayout(position_row, 1, 0, 1, header_columns)
 
-            target_label = QLabel("目标")
+            target_label = QLabel()
             target_label.setStyleSheet("color: #526174; font-size: 12px; font-weight: 700;")
+            self._retranslator.text(target_label, "目标")
             target = self._register(f"axisTarget{axis_name}", QLineEdit())
             target.setAlignment(Qt.AlignRight)
             target.setPlaceholderText(initial_position)
@@ -1356,7 +1369,8 @@ class MainWindow(QMainWindow):
                 "background: #ffffff; border: 1px solid #cbd6e2; border-radius: 5px; "
                 "padding: 4px 7px; color: #12345a;"
             )
-            move_button = self._register(f"btnMoveTo{axis_name}", QPushButton("移动"))
+            move_button = self._register(f"btnMoveTo{axis_name}", QPushButton())
+            self._retranslator.text(move_button, "移动")
             move_button.setFixedWidth(48)
             move_button.setFixedHeight(24)
             move_button.setStyleSheet(
@@ -1444,10 +1458,12 @@ class MainWindow(QMainWindow):
         settings.setContentsMargins(0, 0, 0, 0)
         settings.setHorizontalSpacing(8)
         settings.setVerticalSpacing(3)
-        speed_label = QLabel(f"速度 ({speed_unit})")
-        step_label = QLabel(f"步长 ({step_unit})")
+        speed_label = QLabel()
+        step_label = QLabel()
         speed_label.setStyleSheet("color: #526174; font-size: 12px;")
         step_label.setStyleSheet("color: #526174; font-size: 12px;")
+        self._retranslator.custom(lambda lbl=speed_label, u=speed_unit: lbl.setText(tr("速度 ({speed_unit})").format(speed_unit=u)))
+        self._retranslator.custom(lambda lbl=step_label, u=step_unit: lbl.setText(tr("步长 ({step_unit})").format(step_unit=u)))
         settings.addWidget(speed_label, 0, 0)
         settings.addWidget(step_label, 0, 1)
         settings.addWidget(self._make_speed_combo(f"txtSpeed{axis}", axis), 1, 0)
@@ -1457,8 +1473,10 @@ class MainWindow(QMainWindow):
     def _add_axis3_mark_controls(self, layout: QVBoxLayout) -> None:
         row = QGridLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        btn_zero = self._register("btnAxis3Zero", QPushButton("标记零点"))
-        btn_positions = self._register("btnAxis3Positions", QPushButton("点位管理"))
+        btn_zero = self._register("btnAxis3Zero", QPushButton())
+        self._retranslator.text(btn_zero, "标记零点")
+        btn_positions = self._register("btnAxis3Positions", QPushButton())
+        self._retranslator.text(btn_positions, "点位管理")
         btn_zero.clicked.connect(self._zero_axis3)
         btn_positions.clicked.connect(self._open_axis3_positions_dialog)
         row.addWidget(btn_zero, 0, 0)
@@ -1482,19 +1500,23 @@ class MainWindow(QMainWindow):
         lamp = self._register("motionStatusLamp", QFrame())
         lamp.setFixedSize(11, 11)
         layout.addWidget(lamp)
-        label = self._register("motionStatusText", QLabel("运动控制未打开 - 预览模式"))
+        label = self._register("motionStatusText", QLabel())
         label.setStyleSheet("color: #526174; font-weight: 700;")
         layout.addWidget(label)
         layout.addStretch(1)
-        self._set_motion_status("运动控制未打开 - 预览模式", "off")
+        self._set_motion_status(tr("运动控制未打开 - 预览模式"), "off")
         return bar
 
     def _build_board_controls(self) -> QHBoxLayout:
         layout = QHBoxLayout()
-        btn_stop_all = self._register("btnStopAll", QPushButton("停止移动"))
-        btn_open = self._register("btnOpen", QPushButton("打开运动控制"))
-        btn_close = self._register("btnClose", QPushButton("关闭运动控制"))
-        btn_reset = self._register("button4", QPushButton("复位"))
+        btn_stop_all = self._register("btnStopAll", QPushButton())
+        self._retranslator.text(btn_stop_all, "停止移动")
+        btn_open = self._register("btnOpen", QPushButton())
+        self._retranslator.text(btn_open, "打开运动控制")
+        btn_close = self._register("btnClose", QPushButton())
+        self._retranslator.text(btn_close, "关闭运动控制")
+        btn_reset = self._register("button4", QPushButton())
+        self._retranslator.text(btn_reset, "复位")
 
         btn_stop_all.setStyleSheet(
             """
@@ -1517,7 +1539,7 @@ class MainWindow(QMainWindow):
         font.setBold(True)
         font.setPointSize(max(font.pointSize(), 11))
         btn_stop_all.setFont(font)
-        btn_stop_all.setToolTip("急停 (快捷键: Space)")
+        self._retranslator.tooltip(btn_stop_all, "急停 (快捷键: Space)")
         btn_stop_all.clicked.connect(self._stop_all_motion)
 
         # Global keyboard shortcut: Space → emergency stop
@@ -1554,7 +1576,7 @@ class MainWindow(QMainWindow):
 
     def _open_motion_control_finish(self) -> None:
         _audit.info("motion board opened successfully")
-        self._set_motion_status("运动控制已打开", "on")
+        self._set_motion_status(tr("运动控制已打开"), "on")
 
     def _close_motion_control(self) -> None:
         self._close_motion_control_prepare()
@@ -1580,7 +1602,7 @@ class MainWindow(QMainWindow):
         motion_queue = self._motion_command_queue
         if motion_queue is not None:
             if not motion_queue.shutdown(timeout=2.0):
-                raise MotionControllerError("连续运动命令仍在执行，未关闭运动控制")
+                raise MotionControllerError(tr("连续运动命令仍在执行，未关闭运动控制"))
             self._motion_command_queue = None
             self._motion_command_callbacks.clear()
             self._position_refresh_pending = False
@@ -1588,7 +1610,7 @@ class MainWindow(QMainWindow):
             try:
                 self.controller.stop_all()
             except MotionControllerError as exc:
-                self.statusBar().showMessage(f"关闭前停止失败: {exc}")
+                self.statusBar().showMessage(tr("关闭前停止失败: {exc}").format(exc=exc))
 
     def _close_motion_control_close_board(self) -> None:
         """Blocking GA_Close DLL call (routed through the executor) plus its
@@ -1603,10 +1625,10 @@ class MainWindow(QMainWindow):
             # is_open stays True, so motion remains recoverable.
             if self.controller.is_open:
                 _audit.critical("motion board close FAILED (board still open): %s", exc)
-                self._set_motion_status("关闭运动控制失败，运动卡仍打开", "on")
+                self._set_motion_status(tr("关闭运动控制失败，运动卡仍打开"), "on")
             raise
         _audit.info("motion board closed successfully")
-        self._set_motion_status("运动控制已关闭", "off")
+        self._set_motion_status(tr("运动控制已关闭"), "off")
 
     def _reset_motion_control(self) -> None:
         self.controller.reset_board()
@@ -1614,7 +1636,7 @@ class MainWindow(QMainWindow):
 
     def _reset_motion_control_finish(self) -> None:
         _audit.info("motion board reset successfully")
-        self._set_motion_status("运动控制已复位", "reset")
+        self._set_motion_status(tr("运动控制已复位"), "reset")
 
     # Per-kind orchestration metadata for _run_board_action: the prepare step
     # (GUI thread), the blocking DLL action (routed through the executor), the
@@ -1626,22 +1648,22 @@ class MainWindow(QMainWindow):
                 "prepare": None,
                 "action": self.controller.open_board,
                 "finish": self._open_motion_control_finish,
-                "busy_text": "运动控制连接中…",
-                "success_message": "运动控制打开成功",
+                "busy_text": tr("运动控制连接中…"),
+                "success_message": tr("运动控制打开成功"),
             },
             "close": {
                 "prepare": self._close_motion_control_prepare,
                 "action": self.controller.close_board,
                 "finish": self._close_motion_control_finish_after_executor,
-                "busy_text": "运动控制关闭中…",
-                "success_message": "运动控制已关闭",
+                "busy_text": tr("运动控制关闭中…"),
+                "success_message": tr("运动控制已关闭"),
             },
             "reset": {
                 "prepare": None,
                 "action": self.controller.reset_board,
                 "finish": self._reset_motion_control_finish,
-                "busy_text": "运动控制复位中…",
-                "success_message": "运动控制已复位",
+                "busy_text": tr("运动控制复位中…"),
+                "success_message": tr("运动控制已复位"),
             },
         }[kind]
 
@@ -1651,7 +1673,7 @@ class MainWindow(QMainWindow):
         # handled by re-raising close_board's MotionControllerError, which the
         # executor delivers to on_error).
         _audit.info("motion board closed successfully")
-        self._set_motion_status("运动控制已关闭", "off")
+        self._set_motion_status(tr("运动控制已关闭"), "off")
 
     def _run_board_action(self, kind: str) -> None:
         """Orchestrate a board open/close/reset through the board executor.
@@ -1670,7 +1692,7 @@ class MainWindow(QMainWindow):
             try:
                 prepare()
             except (MotionControllerError, ValueError) as exc:
-                QMessageBox.warning(self, "操作失败", str(exc))
+                QMessageBox.warning(self, tr("操作失败"), str(exc))
                 return
 
         # Give the operator feedback while the (possibly slow) DLL call runs:
@@ -1694,7 +1716,7 @@ class MainWindow(QMainWindow):
             try:
                 spec["finish"]()
             except (MotionControllerError, ValueError) as exc:
-                QMessageBox.warning(self, "操作失败", str(exc))
+                QMessageBox.warning(self, tr("操作失败"), str(exc))
                 return
             self._after_board_action_success(spec)
 
@@ -1702,7 +1724,7 @@ class MainWindow(QMainWindow):
             if generation != self._board_action_generation:
                 return
             self._finish_board_action()
-            QMessageBox.warning(self, "操作失败", str(exc))
+            QMessageBox.warning(self, tr("操作失败"), str(exc))
 
         self._board_action_executor.submit(spec["action"], on_done, on_error)
 
@@ -1712,7 +1734,7 @@ class MainWindow(QMainWindow):
                 positions, axis9_angle = self._record_positions_from_controller()
                 self._update_axis_position_labels(positions, axis9_angle)
             except MotionControllerError as exc:
-                self.statusBar().showMessage(f"位置记录失败: {exc}")
+                self.statusBar().showMessage(tr("位置记录失败: {exc}").format(exc=exc))
                 return
         if spec["success_message"]:
             self.statusBar().showMessage(spec["success_message"])
@@ -1747,10 +1769,10 @@ class MainWindow(QMainWindow):
         self._board_action_in_flight = False
         self._board_action_watchdog = None
         self._set_board_controls_enabled(True)
-        message = f"运动控制操作超时（{kind}），运动卡无响应"
+        message = tr("运动控制操作超时（{kind}），运动卡无响应").format(kind=kind)
         _audit.critical("board action TIMEOUT (kind=%s) after %d ms", kind, self.BOARD_ACTION_TIMEOUT_MS)
         self._set_motion_status(message, "alarm")
-        QMessageBox.warning(self, "操作超时", message)
+        QMessageBox.warning(self, tr("操作超时"), message)
 
     def _finish_board_action(self) -> None:
         if self._board_action_watchdog is not None:
@@ -1793,10 +1815,10 @@ class MainWindow(QMainWindow):
             queue.cancel_pending()
         self._run_or_queue_motion_command(
             self.controller.stop_all,
-            success_message="停止移动已执行",
+            success_message=tr("停止移动已执行"),
             record_positions=False,
             priority=0,
-            on_success=lambda result: self._set_motion_status("停止移动已执行", "reset"),
+            on_success=lambda result: self._set_motion_status(tr("停止移动已执行"), "reset"),
         )
 
     def highlight_axis(self, axis: "int | None") -> None:
@@ -1839,7 +1861,9 @@ class MainWindow(QMainWindow):
         hotspot = self.controls.get(f"axisHotspot{label}")
         detail = hotspot.toolTip() if hotspot is not None else label
         stage_map.set_selected_axis(
-            f"手柄选中: {detail} · 步长 {self._axis_step_text(axis)} · 坐标 {self._axis_coordinate_text(axis)}"
+            tr("手柄选中: {detail} · 步长 {step} · 坐标 {coord}").format(
+                detail=detail, step=self._axis_step_text(axis), coord=self._axis_coordinate_text(axis)
+            )
         )
 
     def _axis_step_text(self, axis: int) -> str:
@@ -1870,9 +1894,9 @@ class MainWindow(QMainWindow):
                 if widget is not None:
                     widget.setEnabled(not armed)
         if armed:
-            self._set_motion_status("手柄已启用，屏幕轴按钮已禁用", "on")
+            self._set_motion_status(tr("手柄已启用，屏幕轴按钮已禁用"), "on")
         else:
-            self._set_motion_status("手柄已停用，屏幕轴按钮已恢复", "off")
+            self._set_motion_status(tr("手柄已停用，屏幕轴按钮已恢复"), "off")
 
     def _confirm(self, title: str, text: str) -> bool:
         """Show a Yes/No confirmation dialog. Monkeypatchable for tests."""
@@ -1899,7 +1923,7 @@ class MainWindow(QMainWindow):
         self._close_existing_dialog("positionCalibrationDialog")
 
         dialog = self._register("positionCalibrationDialog", QDialog(self))
-        dialog.setWindowTitle("坐标标定")
+        dialog.setWindowTitle(tr("坐标标定"))
         dialog.setModal(False)
         dialog.setMinimumWidth(560)
         dialog.setStyleSheet(
@@ -1941,10 +1965,10 @@ class MainWindow(QMainWindow):
         form = QGridLayout()
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(8)
-        form.addWidget(QLabel("轴"), 0, 0)
-        form.addWidget(QLabel("当前读数"), 0, 1)
-        form.addWidget(QLabel("实际位置"), 0, 2)
-        form.addWidget(QLabel("单位"), 0, 3)
+        form.addWidget(QLabel(tr("轴")), 0, 0)
+        form.addWidget(QLabel(tr("当前读数")), 0, 1)
+        form.addWidget(QLabel(tr("实际位置")), 0, 2)
+        form.addWidget(QLabel(tr("单位")), 0, 3)
         first_actual = None
         for row, axis in enumerate(CALIBRATED_AXIS_ORDER, start=1):
             calibration = self.axis_calibrations[axis]
@@ -1966,8 +1990,8 @@ class MainWindow(QMainWindow):
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        cancel = self._register("calibrationCancel", QPushButton("取消"))
-        apply = self._register("calibrationApply", QPushButton("应用标定"))
+        cancel = self._register("calibrationCancel", QPushButton(tr("取消")))
+        apply = self._register("calibrationApply", QPushButton(tr("应用标定")))
         cancel.clicked.connect(dialog.close)
         apply.clicked.connect(lambda: self._apply_position_calibrations(dialog))
         buttons.addWidget(cancel)
@@ -1992,33 +2016,33 @@ class MainWindow(QMainWindow):
             try:
                 actual_value = self._format_position_text(actual_widget.text())
             except ValueError as exc:
-                QMessageBox.warning(self, "标定失败", str(exc))
+                QMessageBox.warning(self, tr("标定失败"), str(exc))
                 return
 
             current_pulse = self._current_axis_pulse_for_calibration(axis)
             if current_pulse is None:
-                QMessageBox.warning(self, "标定失败", f"{axis_name}: 请先打开运动控制或加载该轴的已记录位置")
+                QMessageBox.warning(self, tr("标定失败"), tr("{axis_name}: 请先打开运动控制或加载该轴的已记录位置").format(axis_name=axis_name))
                 return
 
             actual_coordinate = float(actual_value)
             if calibration.min_coordinate is not None and actual_coordinate < calibration.min_coordinate:
-                QMessageBox.warning(self, "标定失败", f"{axis_name} 实际位置不能小于 {calibration.min_coordinate:g} {unit}")
+                QMessageBox.warning(self, tr("标定失败"), tr("{axis_name} 实际位置不能小于 {min_coord:g} {unit}").format(axis_name=axis_name, min_coord=calibration.min_coordinate, unit=unit))
                 return
             if calibration.max_coordinate is not None and actual_coordinate > calibration.max_coordinate:
-                QMessageBox.warning(self, "标定失败", f"{axis_name} 实际位置不能大于 {calibration.max_coordinate:g} {unit}")
+                QMessageBox.warning(self, tr("标定失败"), tr("{axis_name} 实际位置不能大于 {max_coord:g} {unit}").format(axis_name=axis_name, max_coord=calibration.max_coordinate, unit=unit))
                 return
 
             pending.append((axis, axis_name, unit, current_value, actual_value, current_pulse, actual_coordinate))
 
         if not pending:
-            QMessageBox.warning(self, "标定失败", "请至少输入一个实际位置")
+            QMessageBox.warning(self, tr("标定失败"), tr("请至少输入一个实际位置"))
             return
 
         axes_str = "、".join(axis_name for _axis, axis_name, *_rest in pending)
         if not self._confirm(
-            "确认标定覆盖",
-            f"即将覆盖轴 {axes_str} 的坐标标定，这将重定义该轴的坐标参考系并写入磁盘，"
-            "错误的值可能导致错向/超程。确定覆盖？",
+            tr("确认标定覆盖"),
+            tr("即将覆盖轴 {axes_str} 的坐标标定，这将重定义该轴的坐标参考系并写入磁盘，"
+               "错误的值可能导致错向/超程。确定覆盖？").format(axes_str=axes_str),
         ):
             return
 
@@ -2031,10 +2055,12 @@ class MainWindow(QMainWindow):
 
         if len(pending) == 1:
             _axis, axis_name, unit, current_value, actual_value, _pulse, _coordinate = pending[0]
-            message = f"{axis_name} 标定：目前位置 {current_value} {unit}，实际位置 {actual_value} {unit}"
+            message = tr("{axis_name} 标定：目前位置 {current_value} {unit}，实际位置 {actual_value} {unit}").format(
+                axis_name=axis_name, current_value=current_value, unit=unit, actual_value=actual_value
+            )
         else:
             axes = "、".join(axis_name for _axis, axis_name, *_rest in pending)
-            message = f"坐标标定：已应用 {axes}"
+            message = tr("坐标标定：已应用 {axes}").format(axes=axes)
         self._set_motion_status(message, "reset")
         self.statusBar().showMessage(message)
         dialog.close()
@@ -2053,13 +2079,13 @@ class MainWindow(QMainWindow):
         try:
             value = float(text.strip())
         except ValueError as exc:
-            raise ValueError(f"位置数值无效: {text}") from exc
+            raise ValueError(tr("位置数值无效: {text}").format(text=text)) from exc
         return f"{value:.3f}"
 
     def _open_axis3_positions_dialog(self) -> None:
         self._close_existing_dialog("axis3PositionsDialog")
         dialog = self._register("axis3PositionsDialog", QDialog(self))
-        dialog.setWindowTitle("显微镜点位管理")
+        dialog.setWindowTitle(tr("显微镜点位管理"))
         dialog.setModal(False)
         dialog.setMinimumWidth(430)
         dialog.setStyleSheet(
@@ -2111,7 +2137,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
 
         table = self._register("axis3PositionTable", QTableWidget(0, 2))
-        table.setHorizontalHeaderLabels(("名称", "pulse"))
+        table.setHorizontalHeaderLabels((tr("名称"), "pulse"))
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setStretchLastSection(True)
         table.setSelectionMode(QTableWidget.SingleSelection)
@@ -2120,20 +2146,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
 
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("点位名称"))
+        name_row.addWidget(QLabel(tr("点位名称")))
         name_edit = self._register("axis3PointName", QLineEdit())
-        name_edit.setPlaceholderText("例如：安全高度 / 观察高度 / 接触前")
+        name_edit.setPlaceholderText(tr("例如：安全高度 / 观察高度 / 接触前"))
         name_row.addWidget(name_edit, 1)
         layout.addLayout(name_row)
 
         buttons = QGridLayout()
         buttons.setHorizontalSpacing(8)
         buttons.setVerticalSpacing(8)
-        save = self._register("btnAxis3SavePoint", QPushButton("保存当前位置"))
-        move = self._register("btnAxis3MovePoint", QPushButton("移动到选中点位"))
-        rename = self._register("btnAxis3RenamePoint", QPushButton("重命名"))
-        delete = self._register("btnAxis3DeletePoint", QPushButton("删除"))
-        close = self._register("btnAxis3ClosePositions", QPushButton("关闭"))
+        save = self._register("btnAxis3SavePoint", QPushButton(tr("保存当前位置")))
+        move = self._register("btnAxis3MovePoint", QPushButton(tr("移动到选中点位")))
+        rename = self._register("btnAxis3RenamePoint", QPushButton(tr("重命名")))
+        delete = self._register("btnAxis3DeletePoint", QPushButton(tr("删除")))
+        close = self._register("btnAxis3ClosePositions", QPushButton(tr("关闭")))
         save.clicked.connect(self._save_current_axis3_point)
         move.clicked.connect(self._move_to_selected_axis3_point)
         rename.clicked.connect(self._rename_selected_axis3_point)
@@ -2184,7 +2210,7 @@ class MainWindow(QMainWindow):
     def _save_current_axis3_point(self) -> None:
         name = self.controls["axis3PointName"].text().strip()
         if not name:
-            QMessageBox.warning(self, "保存失败", "点位名称不能为空")
+            QMessageBox.warning(self, tr("保存失败"), tr("点位名称不能为空"))
             return
 
         def on_success(marked: object) -> None:
@@ -2192,10 +2218,10 @@ class MainWindow(QMainWindow):
             try:
                 self.microscope_position_store.save_point(name, marked_value)
             except ValueError as exc:
-                QMessageBox.warning(self, "保存失败", str(exc))
+                QMessageBox.warning(self, tr("保存失败"), str(exc))
                 return
             self._refresh_axis3_position_table(selected_name=name)
-            self._set_motion_status(f"MicroscopeZ 已保存点位 {name}: {marked_value:.2f} pulse", "reset")
+            self._set_motion_status(tr("MicroscopeZ 已保存点位 {name}: {value:.2f} pulse").format(name=name, value=marked_value), "reset")
 
         self._run_or_queue_motion_command(
             self.controller.mark_axis3,
@@ -2206,12 +2232,12 @@ class MainWindow(QMainWindow):
     def _move_to_selected_axis3_point(self) -> None:
         point = self._selected_axis3_point()
         if point is None:
-            QMessageBox.warning(self, "运动失败", "请先选择一个点位")
+            QMessageBox.warning(self, tr("运动失败"), tr("请先选择一个点位"))
             return
 
         def on_success(result: object) -> None:
             self.controls["labelAxis3Pos"].setText(f"{point.pulse:.2f}")
-            self._set_motion_status(f"MicroscopeZ 移动到点位 {point.name}: {point.pulse:.2f} pulse", "on")
+            self._set_motion_status(tr("MicroscopeZ 移动到点位 {name}: {value:.2f} pulse").format(name=point.name, value=point.pulse), "on")
 
         self._run_or_queue_motion_command(
             lambda: self.controller.move_axis3_to_position(point.pulse),
@@ -2222,26 +2248,26 @@ class MainWindow(QMainWindow):
     def _rename_selected_axis3_point(self) -> None:
         point = self._selected_axis3_point()
         if point is None:
-            QMessageBox.warning(self, "重命名失败", "请先选择一个点位")
+            QMessageBox.warning(self, tr("重命名失败"), tr("请先选择一个点位"))
             return
         new_name = self.controls["axis3PointName"].text().strip()
         try:
             self.microscope_position_store.rename_point(point.name, new_name)
         except ValueError as exc:
-            QMessageBox.warning(self, "重命名失败", str(exc))
+            QMessageBox.warning(self, tr("重命名失败"), str(exc))
             return
         self._refresh_axis3_position_table(selected_name=new_name)
-        self._set_motion_status(f"MicroscopeZ 点位已重命名为 {new_name}", "reset")
+        self._set_motion_status(tr("MicroscopeZ 点位已重命名为 {name}").format(name=new_name), "reset")
 
     def _delete_selected_axis3_point(self) -> None:
         point = self._selected_axis3_point()
         if point is None:
-            QMessageBox.warning(self, "删除失败", "请先选择一个点位")
+            QMessageBox.warning(self, tr("删除失败"), tr("请先选择一个点位"))
             return
         self.microscope_position_store.delete_point(point.name)
         self._refresh_axis3_position_table()
         self.controls["axis3PointName"].clear()
-        self._set_motion_status(f"MicroscopeZ 已删除点位 {point.name}", "reset")
+        self._set_motion_status(tr("MicroscopeZ 已删除点位 {name}").format(name=point.name), "reset")
 
     def _open_axis9_twist_dialog(self) -> None:
         self._close_existing_dialog("axis9TwistDialog")
@@ -2295,17 +2321,17 @@ class MainWindow(QMainWindow):
         angle.setValue(1.0)
         direction = self._register("axis9TwistDirection", QComboBox())
         direction.addItems(("顺时针", "逆时针"))
-        form.addWidget(QLabel("相对角度"), 0, 0)
+        form.addWidget(QLabel(tr("相对角度")), 0, 0)
         form.addWidget(angle, 0, 1)
         form.addWidget(QLabel("deg"), 0, 2)
-        form.addWidget(QLabel("方向"), 1, 0)
+        form.addWidget(QLabel(tr("方向")), 1, 0)
         form.addWidget(direction, 1, 1, 1, 2)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        cancel = self._register("axis9TwistCancel", QPushButton("取消"))
-        apply = self._register("axis9TwistApply", QPushButton("执行"))
+        cancel = self._register("axis9TwistCancel", QPushButton(tr("取消")))
+        apply = self._register("axis9TwistApply", QPushButton(tr("执行")))
         cancel.clicked.connect(dialog.close)
         apply.clicked.connect(lambda: self._apply_axis9_twist(dialog, angle, direction))
         buttons.addWidget(cancel)
@@ -2331,7 +2357,9 @@ class MainWindow(QMainWindow):
         def on_success(result: object) -> None:
             target_angle = float(result)
             self.controls["axisPositionR"].setText(f"{target_angle:.3f}")
-            message = f"R twist：{direction_text} {angle:.3f} deg，目标 {target_angle:.3f} deg"
+            message = tr("R twist：{direction} {angle:.3f} deg，目标 {target:.3f} deg").format(
+                direction=direction_text, angle=angle, target=target_angle
+            )
             self._set_motion_status(message, "reset")
             self.statusBar().showMessage(message)
             dialog.close()
@@ -2345,7 +2373,7 @@ class MainWindow(QMainWindow):
     def _open_z_continuous_dialog(self) -> None:
         self._close_existing_dialog("zContinuousDialog")
         dialog = self._register("zContinuousDialog", QDialog(self))
-        dialog.setWindowTitle("Z 连续控制")
+        dialog.setWindowTitle(tr("Z 连续控制"))
         dialog.setModal(False)
         dialog.setMinimumWidth(300)
         dialog.setStyleSheet(
@@ -2395,20 +2423,20 @@ class MainWindow(QMainWindow):
         distance.setValue(100.0)
         direction = self._register("zContinuousDirection", QComboBox())
         direction.addItems(("上升", "下降"))
-        form.addWidget(QLabel("速度"), 0, 0)
+        form.addWidget(QLabel(tr("速度")), 0, 0)
         form.addWidget(speed, 0, 1)
         form.addWidget(QLabel("um/s"), 0, 2)
-        form.addWidget(QLabel("距离"), 1, 0)
+        form.addWidget(QLabel(tr("距离")), 1, 0)
         form.addWidget(distance, 1, 1)
         form.addWidget(QLabel("um"), 1, 2)
-        form.addWidget(QLabel("方向"), 2, 0)
+        form.addWidget(QLabel(tr("方向")), 2, 0)
         form.addWidget(direction, 2, 1, 1, 2)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        cancel = self._register("zContinuousCancel", QPushButton("取消"))
-        apply = self._register("zContinuousApply", QPushButton("执行"))
+        cancel = self._register("zContinuousCancel", QPushButton(tr("取消")))
+        apply = self._register("zContinuousApply", QPushButton(tr("执行")))
         cancel.clicked.connect(dialog.close)
         apply.clicked.connect(lambda: self._apply_z_continuous(dialog, speed, distance, direction))
         buttons.addWidget(cancel)
@@ -2434,7 +2462,9 @@ class MainWindow(QMainWindow):
         step = step_to_pulse_delta(4, distance_um)
 
         def on_success(result: object) -> None:
-            message = f"Z 连续控制：{direction_text} {distance_um:.3f} um，速度 {speed_um_s:g} um/s"
+            message = tr("Z 连续控制：{direction} {distance:.3f} um，速度 {speed:g} um/s").format(
+                direction=direction_text, distance=distance_um, speed=speed_um_s
+            )
             self._set_motion_status(message, "reset")
             self.statusBar().showMessage(message)
             dialog.close()
@@ -2500,8 +2530,8 @@ class MainWindow(QMainWindow):
         except MotionControllerError as exc:
             # This is a safety path; a failed stop must not be silently discarded.
             _audit.critical("gamepad emergency stop FAILED: %s", exc)
-            self.statusBar().showMessage(f"手柄急停失败: {exc}")
-            self._set_motion_status(f"手柄急停失败: {exc}", "reset")
+            self.statusBar().showMessage(tr("手柄急停失败: {exc}").format(exc=exc))
+            self._set_motion_status(tr("手柄急停失败: {exc}").format(exc=exc), "reset")
 
     def _step_control_name(self, axis: int) -> str:
         name = f"txtStep{axis}"
@@ -2517,7 +2547,9 @@ class MainWindow(QMainWindow):
         step_unit, speed_unit = ("°", "°/s") if int(axis) == 9 else ("µm", "µm/s")
         step_v = float(self.controls[self._step_control_name(axis)].value())
         speed_v = float(self.controls[self._speed_control_name(axis)].value())
-        return f"步长:{step_v:g} {step_unit} · 速度:{speed_v:g} {speed_unit}"
+        return tr("步长:{step_v:g} {step_unit} · 速度:{speed_v:g} {speed_unit}").format(
+            step_v=step_v, step_unit=step_unit, speed_v=speed_v, speed_unit=speed_unit
+        )
 
     def _gamepad_set_step(self, axis: int, delta: int) -> None:
         from .axis_calibration import snap_step
@@ -2538,19 +2570,21 @@ class MainWindow(QMainWindow):
         try:
             target_text = self._format_position_text(target_widget.text())
         except ValueError as exc:
-            QMessageBox.warning(self, "目标位置无效", str(exc))
+            QMessageBox.warning(self, tr("目标位置无效"), str(exc))
             return
 
         target_coordinate = float(target_text)
         action = lambda: self.controller.move_axis_to_coordinate(axis, target_coordinate, self._speed(axis))
         queue = self._active_motion_queue()
         if queue is None or not queue.submit(action, priority=10):
-            self.statusBar().showMessage("运动控制未打开，移动命令已忽略")
-            self._set_motion_status("运动控制未打开，命令已忽略", "off")
+            self.statusBar().showMessage(tr("运动控制未打开，移动命令已忽略"))
+            self._set_motion_status(tr("运动控制未打开，命令已忽略"), "off")
             return
 
         target_widget.setText(target_text)
-        message = f"{axis_name} 移动至 {target_text} {unit}"
+        message = tr("{axis_name} 移动至 {target_text} {unit}").format(
+            axis_name=axis_name, target_text=target_text, unit=unit
+        )
         self._set_motion_status(message, "reset")
         self.statusBar().showMessage(message)
 
@@ -2559,14 +2593,14 @@ class MainWindow(QMainWindow):
         action = lambda: self.controller.relative_move(axis, controller_direction, self._speed(axis), self._step(axis))
         queue = self._active_motion_queue()
         if queue is None or not queue.submit(action, priority=10):
-            self.statusBar().showMessage("运动控制未打开，移动命令已忽略")
-            self._set_motion_status("运动控制未打开，命令已忽略", "off")
+            self.statusBar().showMessage(tr("运动控制未打开，移动命令已忽略"))
+            self._set_motion_status(tr("运动控制未打开，命令已忽略"), "off")
 
     def _start_jog(self, axis: int, sign: int) -> None:
         queue = self._active_motion_queue()
         if queue is None:
-            self.statusBar().showMessage("运动控制未打开，移动命令已忽略")
-            self._set_motion_status("运动控制未打开，命令已忽略", "off")
+            self.statusBar().showMessage(tr("运动控制未打开，移动命令已忽略"))
+            self._set_motion_status(tr("运动控制未打开，命令已忽略"), "off")
             return
         speed = self._controller_direction_for_coordinate_direction(axis, sign) * self._speed(axis)
         queue.submit(
@@ -2634,8 +2668,8 @@ class MainWindow(QMainWindow):
     ) -> bool:
         queue = self._active_motion_queue()
         if queue is None:
-            self.statusBar().showMessage("运动控制未打开，命令已忽略")
-            self._set_motion_status("运动控制未打开，命令已忽略", "off")
+            self.statusBar().showMessage(tr("运动控制未打开，命令已忽略"))
+            self._set_motion_status(tr("运动控制未打开，命令已忽略"), "off")
             return False
         command_id = next(self._motion_command_callback_ids)
         self._motion_command_callbacks[command_id] = (success_message, on_success, record_positions)
@@ -2666,7 +2700,7 @@ class MainWindow(QMainWindow):
             if on_success is not None:
                 on_success(result)
         except (MotionControllerError, ValueError) as exc:
-            QMessageBox.warning(self, "操作失败", str(exc))
+            QMessageBox.warning(self, tr("操作失败"), str(exc))
             return
         if self.controller.is_open and record_positions:
             self._request_async_position_refresh()
@@ -2685,8 +2719,8 @@ class MainWindow(QMainWindow):
         # command_id happens to equal that axis number.
         if kind == MotionCommandQueue.CONTINUOUS_JOG_KIND:
             _audit.critical("motion command FAILED (continuous jog kind=%s): %s", kind, message)
-            self.statusBar().showMessage(f"运动命令失败: {message}")
-            self._set_motion_status(f"运动命令失败: {message}", "reset")
+            self.statusBar().showMessage(tr("运动命令失败: {message}").format(message=message))
+            self._set_motion_status(tr("运动命令失败: {message}").format(message=message), "reset")
             return
         if command_id is not None:
             try:
@@ -2694,27 +2728,27 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError):
                 pass
         _audit.critical("motion command FAILED (kind=%s, id=%s): %s", kind, command_id, message)
-        self.statusBar().showMessage(f"运动命令失败: {message}")
+        self.statusBar().showMessage(tr("运动命令失败: {message}").format(message=message))
         # Hardware motion faults are at least as important as input-validation
         # errors, so surface them on the prominent motion-status bar too (amber),
         # not only the easily-missed bottom status bar.
-        self._set_motion_status(f"运动命令失败: {message}", "reset")
+        self._set_motion_status(tr("运动命令失败: {message}").format(message=message), "reset")
 
     def _zero_axis3(self) -> None:
         self._run_or_queue_motion_command(
             self.controller.zero_axis3,
-            success_message="轴3位置已清零",
+            success_message=tr("轴3位置已清零"),
         )
 
     def _home_axis9(self) -> None:
         if not self._confirm(
-            "确认 R 轴物理回零",
-            "R 轴将执行物理回零（归零行程），请确认样品和机械处于安全位置。\n\n确定执行？",
+            tr("确认 R 轴物理回零"),
+            tr("R 轴将执行物理回零（归零行程），请确认样品和机械处于安全位置。\n\n确定执行？"),
         ):
             return
         self._run_or_queue_motion_command(
             self.controller.home_axis9,
-            success_message="轴9开始物理回零",
+            success_message=tr("轴9开始物理回零"),
         )
 
     def _load_cached_position_labels(self) -> None:
@@ -2852,7 +2886,7 @@ class MainWindow(QMainWindow):
             "paused; attempting protective stop",
             self.POSITION_REFRESH_WATCHDOG_MS,
         )
-        message = "位置读取无响应，运动安全扫描已暂停；请确认物理急停/硬件限位可用"
+        message = tr("位置读取无响应，运动安全扫描已暂停；请确认物理急停/硬件限位可用")
         self._set_motion_status(message, "alarm")
         self.statusBar().showMessage(message)
         # Best-effort protective stop. NOTE (A1): this may itself queue behind the
@@ -2889,7 +2923,7 @@ class MainWindow(QMainWindow):
         except (MotionControllerError, TypeError, ValueError) as exc:
             self._position_refresh_pending = False
             self._disarm_position_refresh_watchdog()
-            self.statusBar().showMessage(f"位置记录失败: {exc}")
+            self.statusBar().showMessage(tr("位置记录失败: {exc}").format(exc=exc))
 
     def _handle_async_position_refresh_failure(self, payload: object) -> None:
         try:
@@ -2916,10 +2950,9 @@ class MainWindow(QMainWindow):
             self._consecutive_read_failures,
             message,
         )
-        alarm_text = (
-            f"位置读取连续失败 {self._consecutive_read_failures} 次，已保护性停止；"
-            "请确认物理急停/硬件限位可用"
-        )
+        alarm_text = tr(
+            "位置读取连续失败 {n} 次，已保护性停止；请确认物理急停/硬件限位可用"
+        ).format(n=self._consecutive_read_failures)
         # Mark the alarm latched so that once reads recover, the next all-safe scan in
         # _stop_unsafe_axes_if_needed clears the lamp. Without this the read-failure
         # alarm lamp would stay red after recovery (the clear path is gated on this flag).
@@ -2972,7 +3005,7 @@ class MainWindow(QMainWindow):
             # cleared above), which means we just transitioned from alarm to safe.
             if getattr(self, "_safety_alarm_active", False):
                 self._safety_alarm_active = False
-                self._set_motion_status("安全检查：所有轴在安全范围内", "on")
+                self._set_motion_status(tr("安全检查：所有轴在安全范围内"), "on")
             return
 
         self._safety_alarm_active = True
@@ -2991,8 +3024,8 @@ class MainWindow(QMainWindow):
             ", ".join(stopped_axes),
             check.message,
         )
-        self._set_motion_status(f"安全停止轴 {', '.join(stopped_axes)}: {check.message}", "alarm")
-        self.statusBar().showMessage(f"安全停止轴 {', '.join(stopped_axes)}: {check.message}")
+        self._set_motion_status(tr("安全停止轴 {axes}: {message}").format(axes=", ".join(stopped_axes), message=check.message), "alarm")
+        self.statusBar().showMessage(tr("安全停止轴 {axes}: {message}").format(axes=", ".join(stopped_axes), message=check.message))
 
     def changeEvent(self, event) -> None:
         from PySide6.QtCore import QEvent
@@ -3083,7 +3116,7 @@ class MainWindow(QMainWindow):
                 self._motion_command_queue = None
                 self._motion_command_callbacks.clear()
             else:
-                self.statusBar().showMessage("连续运动命令仍在执行，窗口关闭时未能完全停止队列")
+                self.statusBar().showMessage(tr("连续运动命令仍在执行，窗口关闭时未能完全停止队列"))
             self._position_refresh_pending = False
         if self.controller.is_open:
             try:
@@ -3097,8 +3130,8 @@ class MainWindow(QMainWindow):
         heater-off + close-all-ports shutdown in closeEvent)."""
         reply = QMessageBox.question(
             self,
-            "确认退出",
-            "确认退出程序？\n退出后将关闭加热（ENABLE=0）并断开所有端口。",
+            tr("确认退出"),
+            tr("确认退出程序？\n退出后将关闭加热（ENABLE=0）并断开所有端口。"),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -3116,7 +3149,7 @@ class MainWindow(QMainWindow):
         # spontaneous and proceeds normally, so the shutdown path is unchanged for it.
         if event.spontaneous() and not self._exit_requested:
             event.ignore()
-            self.statusBar().showMessage("窗口关闭按钮已禁用：请点击右下角「退出 Exit」按钮退出程序")
+            self.statusBar().showMessage(tr("窗口关闭按钮已禁用：请点击右下角「退出 Exit」按钮退出程序"))
             return
         self._prepare_for_close()
         super().closeEvent(event)
