@@ -757,14 +757,15 @@ class TemperaturePanel(QWidget):
         if self._slots_disabled():
             return
         last_error = getattr(controller, "last_error", "") or ""
-        disable_error = last_error if "关闭输出失败" in last_error else ""
+        disable_failed = bool(getattr(controller, "disconnect_disable_failed", False))
         # Keep the hazard banner up if disconnect could NOT turn the output off
-        # (still energized); otherwise the heater is off, so hide it.
-        self._apply_heat_warning("关闭输出失败" if disable_error else "输出关闭")
-        self.controls["tempConnectionLabel"].setText(self._tr("已断开（关闭输出失败）") if disable_error else self._tr("已断开"))
+        # (still energized); otherwise the heater is off, so hide it. This MUST use a
+        # language-independent flag, not a substring of the (translated) last_error.
+        self._apply_heat_warning("关闭输出失败" if disable_failed else "输出关闭")
+        self.controls["tempConnectionLabel"].setText(self._tr("已断开（关闭输出失败）") if disable_failed else self._tr("已断开"))
         self.controls["tempConnect"].setText(self._tr("开始连接"))
         self.controls["tempConnect"].setEnabled(True)
-        self._set_status(f"RD105 {disable_error}" if disable_error else self._tr("RD105 已断开"))
+        self._set_status(f"RD105 {last_error}" if disable_failed else self._tr("RD105 已断开"))
 
     def _handle_disconnect_failure(self, controller, message: str) -> None:
         self._disconnect_in_flight = False

@@ -138,6 +138,7 @@ class TemperatureController:
         self.last_error_code = None
         self.last_max_output_duty = None
         self.over_temperature_alarm = False
+        self.disconnect_disable_failed: bool = False
         self._last_error_poll_time = 0.0
         self._software_ramp: SoftwareRampState | None = None
         self._clock = time.monotonic
@@ -265,6 +266,7 @@ class TemperatureController:
             return False
 
     def connect(self):
+        self.disconnect_disable_failed = False
         with self.serial_lock:
             ok = self._connect_locked()
         # BP2: start the independent watchdog AFTER releasing serial_lock (it
@@ -291,6 +293,7 @@ class TemperatureController:
             self._close_serial_locked()
 
     def _disable_output_on_disconnect_locked(self):
+        self.disconnect_disable_failed = False
         if not (self.ser and self.ser.is_open):
             return
         if self.last_enable_state is False:
@@ -299,11 +302,14 @@ class TemperatureController:
         try:
             if not self._set_enable_locked(False):
                 # Do not raise/crash, but record that the output was NOT closed.
+                self.disconnect_disable_failed = True
                 if not self.last_error:
                     self._set_last_error(tr("断开连接时关闭输出失败"))
         except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
+            self.disconnect_disable_failed = True
             self._set_last_error(tr("断开连接时关闭输出失败: {exc}").format(exc=exc))
         except Exception as exc:
+            self.disconnect_disable_failed = True
             self._set_last_error(tr("断开连接时关闭输出失败: {exc}").format(exc=exc))
 
     def _ensure_connected_locked(self):

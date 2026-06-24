@@ -66,6 +66,7 @@ class FakeTemperatureController:
         self.is_connected = False
         self.last_error = ""
         self.last_pid_profile = None
+        self.disconnect_disable_failed = False
 
     def connect(self):
         self.calls.append(("connect",))
@@ -588,6 +589,8 @@ class TemperaturePanelTests(unittest.TestCase):
         class DisableFailController(FakeTemperatureController):
             def disconnect(self):
                 super().disconnect()
+                # Use the structured flag (language-independent) alongside the error string.
+                self.disconnect_disable_failed = True
                 self.last_error = "断开连接时关闭输出失败"
 
         get_app()
@@ -606,6 +609,76 @@ class TemperaturePanelTests(unittest.TestCase):
         # A failed heater-disable during disconnect must NOT read as a clean shutdown.
         self.assertIn("关闭输出失败", controls["tempConnectionLabel"].text())
         self.assertIn("关闭输出失败", controls["tempStatusLabel"].text())
+
+    def test_disconnect_heater_disable_failure_detected_in_english_mode(self):
+        """Regression: the hazard banner must appear even when the UI is in English.
+
+        The old code matched a Chinese substring in last_error; in English mode that
+        substring is absent and the failure was silently ignored (safety bug).
+        The fix uses a language-independent boolean flag instead.
+        """
+        from automatic_transfer_station.temperature_panel import TemperaturePanel
+        from automatic_transfer_station.i18n import translator
+
+        class DisableFailController(FakeTemperatureController):
+            def __init__(self):
+                super().__init__()
+                self.disconnect_disable_failed = False
+
+            def disconnect(self):
+                super().disconnect()
+                self.disconnect_disable_failed = True
+                # Simulate the English translated error message (no Chinese characters).
+                self.last_error = "Failed to stop output on disconnect"
+
+        get_app()
+        fake = DisableFailController()
+        controls = {}
+        panel = TemperaturePanel(
+            register=lambda name, widget: controls.setdefault(name, widget),
+            controller_factory=lambda port: fake,
+            serial_executor=inline_executor(),
+            port_lister=lambda: [SimpleNamespace(device="COM5", description="RD105", hwid="")],
+        )
+        translator.set_language("en")
+        try:
+            panel.connect_to_device()
+            panel.disconnect_from_device()
+
+            # Hazard banner MUST be visible — heater may still be energized.
+            self.assertFalse(
+                controls["tempHeatWarning"].isHidden(),
+                "Heat warning banner must stay visible when disconnect failed to turn off heater (EN mode)",
+            )
+            # Connection label must show the failed-state text, not a clean disconnect.
+            self.assertIn(
+                "Disconnected (stop-output failed)",
+                controls["tempConnectionLabel"].text(),
+                "Connection label must indicate heater-stop failure in English mode",
+            )
+        finally:
+            translator.initialize("zh")
+
+    def test_disconnect_clean_hides_hazard_banner(self):
+        """After a clean disconnect (disable succeeded), the hazard banner must be hidden."""
+        from automatic_transfer_station.temperature_panel import TemperaturePanel
+
+        get_app()
+        fake = FakeTemperatureController()
+        controls = {}
+        panel = TemperaturePanel(
+            register=lambda name, widget: controls.setdefault(name, widget),
+            controller_factory=lambda port: fake,
+            serial_executor=inline_executor(),
+            port_lister=lambda: [SimpleNamespace(device="COM5", description="RD105", hwid="")],
+        )
+        panel.connect_to_device()
+        panel.disconnect_from_device()
+
+        self.assertTrue(
+            controls["tempHeatWarning"].isHidden(),
+            "Heat warning banner must be hidden after a clean disconnect",
+        )
 
 
     def test_temperature_panel_translates_to_english(self):
