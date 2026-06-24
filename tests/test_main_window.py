@@ -1803,6 +1803,12 @@ class MainWindowTests(unittest.TestCase):
         app = get_app()
         controller = RecordingController()
         controller.is_open = True
+        # X3 (axis 5) defaults to pulse 0, which maps to 13.758 mm — outside its
+        # +/-12.5 mm soft range — so the async reactive safety scan would overwrite
+        # motionStatusText with an X3 soft-limit alarm and race this test's assertion
+        # on that label (flaky under full-suite load / CI; see CI failure 2026-06-24).
+        # Park X3 at its zero coordinate (in range) so the scan stays quiet.
+        controller.positions[5] = 687898.0
         window = MainWindow(
             controller=controller,
             motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
