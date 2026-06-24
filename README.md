@@ -1,5 +1,7 @@
 # Automatic Transfer Station
 
+[![CI](https://github.com/wnz123123-bit/Automatic-transfer-station/actions/workflows/ci.yml/badge.svg)](https://github.com/wnz123123-bit/Automatic-transfer-station/actions/workflows/ci.yml)
+
 Python GUI controller for the two-dimensional-material transfer station.
 
 ## Project Layout
