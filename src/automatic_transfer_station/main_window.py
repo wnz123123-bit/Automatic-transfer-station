@@ -1114,7 +1114,11 @@ class MainWindow(QMainWindow):
         # overlapped neighbours at the minimum window size, risking a wrong-axis
         # misclick; a compact single-line chip stays legible and packs tighter.
         short = {"MicroscopeZ": "镜Z"}.get(axis, axis)
-        button = self._register(f"axisHotspot{axis}", QPushButton(short, parent))
+        button = self._register(f"axisHotspot{axis}", QPushButton(parent))
+        # Chip text: axis codes (X1, Y2, …) are identifiers and pass through tr
+        # unchanged; only "镜Z" translates (-> "Microscope Z"). Registered so it
+        # re-applies on a live language switch.
+        self._retranslator.text(button, short)
         button.setCursor(Qt.PointingHandCursor)
         self._retranslator.custom(
             lambda b=button, a=axis, r=role: b.setToolTip(
@@ -1178,7 +1182,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(10)
 
         title_row = QHBoxLayout()
-        title = QLabel()
+        title = self._register("axisControlTitle", QLabel())
         title.setStyleSheet("font-size: 18px; font-weight: 700; color: #142033;")
         self._retranslator.text(title, "轴控制面板")
         calibration_button = self._register("btnCoordinateCalibration", QPushButton())
@@ -1832,7 +1836,7 @@ class MainWindow(QMainWindow):
                     btn.style().unpolish(btn)
                     btn.style().polish(btn)
                 # Non-color cue: prefix text with ▶ when selected
-                short = {"MicroscopeZ": "镜Z"}.get(label, label)
+                short = tr({"MicroscopeZ": "镜Z"}.get(label, label))
                 btn.setText(("▶ " + short) if selected else short)
             # Also mark the axis card so the operator can see it
             card_name = AXIS_CARD_NAMES.get(int(ax))

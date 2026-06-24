@@ -17,8 +17,9 @@ CONTEXT_TRANSLATIONS: dict[tuple[str, str], str] = {
 TRANSLATIONS.update({
     # main_window — static widget text
     "显微镜调整": "Microscope adjust",
-    "坐标标定": "Coordinate calibration",
-    "轴控制面板": "Axis control panel",
+    "坐标标定": "Calibration",
+    "轴控制面板": "Motion control",
+    "镜Z": "Microscope Z",
     "停止移动": "Stop motion",
     "打开运动控制": "Open motion control",
     "关闭运动控制": "Close motion control",

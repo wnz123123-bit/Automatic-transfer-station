@@ -2109,9 +2109,13 @@ class MainWindowTests(unittest.TestCase):
         translator.set_language("en")
         try:
             # calibration button text becomes English
-            self.assertEqual("Coordinate calibration", window.controls["btnCoordinateCalibration"].text())
+            self.assertEqual("Calibration", window.controls["btnCoordinateCalibration"].text())
             # microscope section title becomes English
             self.assertEqual("Microscope adjust", window.controls["stageMicroscopeTitle"].text())
+            # axis-3 stage chip "镜Z" translates (codes like X1 pass through unchanged)
+            self.assertEqual("Microscope Z", window.controls["axisHotspotMicroscopeZ"].text())
+            # panel title
+            self.assertEqual("Motion control", window.controls["axisControlTitle"].text())
         finally:
             translator.initialize("zh")
 
