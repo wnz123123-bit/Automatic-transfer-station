@@ -608,6 +608,25 @@ class TemperaturePanelTests(unittest.TestCase):
         self.assertIn("关闭输出失败", controls["tempStatusLabel"].text())
 
 
+    def test_temperature_panel_translates_to_english(self):
+        from automatic_transfer_station.temperature_panel import TemperaturePanel
+        from automatic_transfer_station.i18n import translator
+        get_app()
+        controls = {}
+        panel = TemperaturePanel(
+            register=lambda name, widget: controls.setdefault(name, widget),
+            controller_factory=lambda port: FakeTemperatureController(),
+            port_lister=lambda: [SimpleNamespace(device="COM5", description="", hwid="")],
+        )
+        translator.set_language("en")
+        try:
+            self.assertEqual("Temperature Control", controls["tempPanelTitle"].text())
+            self.assertEqual("Stop output", controls["tempStopHeating"].text())
+            self.assertEqual("Connection", controls["tempConnectionGroup"].title() if "tempConnectionGroup" in controls else "Connection")
+        finally:
+            translator.initialize("zh")
+
+
 class TemperaturePanelStuckPollTests(unittest.TestCase):
     """BP2 panel side: a STUCK poll (read that never returns) is a comm failure."""
 

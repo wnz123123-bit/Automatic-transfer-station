@@ -258,8 +258,9 @@ class TemperaturePlotWidget(QFrame):
 
         values = [value for sample in self._samples for value in sample if value is not None]
         if not values:
+            from .i18n import tr as _tr
             painter.setPen(QColor("#64748b"))
-            painter.drawText(rect, Qt.AlignCenter, "等待实时读数")
+            painter.drawText(rect, Qt.AlignCenter, _tr("等待实时读数"))
             return
 
         low = min(values)
@@ -351,6 +352,9 @@ class TemperaturePanel(QWidget):
         self.setObjectName("temperaturePanel")
         self.setMinimumWidth(300)
         self.setMaximumWidth(420)
+        from .i18n import translator, Retranslator, tr
+        self._tr = tr
+        self._rt = Retranslator(translator)
         self._build_ui()
         self.refresh_ports()
 
@@ -380,7 +384,8 @@ class TemperaturePanel(QWidget):
         root.setSpacing(8)
 
         header = QHBoxLayout()
-        title = QLabel("温度控制")
+        title = self._register("tempPanelTitle", QLabel())
+        self._rt.text(title, "温度控制")
         title.setStyleSheet("font-size: 18px; font-weight: 700; color: #142033;")
         subtitle = QLabel("RD105")
         subtitle.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -394,8 +399,9 @@ class TemperaturePanel(QWidget):
         # it reads as a hazard, not a normal status line.
         warning = self._register(
             "tempHeatWarning",
-            QLabel("⚠ 高温警告：加热时请勿触碰加热台，谨防烫伤；离开或退出前务必关闭输出（ENABLE=0）"),
+            QLabel(),
         )
+        self._rt.text(warning, "⚠ 高温警告：加热时请勿触碰加热台，谨防烫伤；离开或退出前务必关闭输出（ENABLE=0）")
         warning.setObjectName("tempHeatWarning")
         warning.setWordWrap(True)
         warning.setAlignment(Qt.AlignCenter)
@@ -414,7 +420,8 @@ class TemperaturePanel(QWidget):
         root.addWidget(self._build_control_group())
         root.addWidget(self._build_plot_group(), 1)
 
-        status = self._register("tempStatusLabel", QLabel("RD105 未连接"))
+        status = self._register("tempStatusLabel", QLabel())
+        self._rt.text(status, "RD105 未连接")
         status.setAlignment(Qt.AlignCenter)
         status.setStyleSheet("color: #175cd3; font-weight: 700;")
         root.addWidget(status)
@@ -489,44 +496,54 @@ class TemperaturePanel(QWidget):
         )
 
     def _build_connection_group(self) -> QGroupBox:
-        group = QGroupBox("连接")
+        group = self._register("tempConnectionGroup", QGroupBox())
+        self._rt.title(group, "连接")
         layout = QGridLayout(group)
         layout.setHorizontalSpacing(8)
         layout.setVerticalSpacing(6)
 
         port_combo = self._register("tempPortCombo", QComboBox())
-        refresh = self._register("tempRefreshPorts", QPushButton("刷新端口"))
-        connect = self._register("tempConnect", QPushButton("开始连接"))
-        connection = self._make_readout("tempConnectionLabel", "等待接入")
+        refresh = self._register("tempRefreshPorts", QPushButton())
+        self._rt.text(refresh, "刷新端口")
+        connect = self._register("tempConnect", QPushButton())
+        self._rt.text(connect, "开始连接")
+        connection = self._make_readout("tempConnectionLabel", "")
+        self._rt.text(connection, "等待接入")
 
         refresh.clicked.connect(self.refresh_ports)
         connect.clicked.connect(self.toggle_connection)
 
-        layout.addWidget(QLabel("COM 端口"), 0, 0)
+        com_label = QLabel()
+        self._rt.text(com_label, "COM 端口")
+        conn_label = QLabel()
+        self._rt.text(conn_label, "连接状态")
+        layout.addWidget(com_label, 0, 0)
         layout.addWidget(port_combo, 0, 1)
         layout.addWidget(refresh, 1, 0)
         layout.addWidget(connect, 1, 1)
-        layout.addWidget(QLabel("连接状态"), 2, 0)
+        layout.addWidget(conn_label, 2, 0)
         layout.addWidget(connection, 2, 1)
         return group
 
     def _build_status_group(self) -> QGroupBox:
-        group = QGroupBox("当前状态")
+        group = QGroupBox()
+        self._rt.title(group, "当前状态")
         layout = QGridLayout(group)
         layout.setHorizontalSpacing(8)
         layout.setVerticalSpacing(6)
 
-        self._add_readout_row(layout, 0, "当前温度", "tempCurrentTempLabel", "--.-- °C")
-        self._add_readout_row(layout, 1, "当前给定", "tempLiveSetpointLabel", "--.-- °C")
-        self._add_readout_row(layout, 2, "目标温度", "tempTargetTempLabel", "--.-- °C")
-        self._add_readout_row(layout, 3, "输出 (PWM)", "tempOutputLabel", "-- PWM")
-        self._add_readout_row(layout, 4, "最大输出占空比", "tempMaxOutputDutyLabel", "-- %")
-        self._add_readout_row(layout, 5, "控制状态", "tempRunStateLabel", "等待接入")
-        self._add_readout_row(layout, 6, "错误码", "tempErrorCodeLabel", "--")
+        self._add_translated_readout_row(layout, 0, "当前温度", "tempCurrentTempLabel", "--.-- °C")
+        self._add_translated_readout_row(layout, 1, "当前给定", "tempLiveSetpointLabel", "--.-- °C")
+        self._add_translated_readout_row(layout, 2, "目标温度", "tempTargetTempLabel", "--.-- °C")
+        self._add_translated_readout_row(layout, 3, "输出 (PWM)", "tempOutputLabel", "-- PWM")
+        self._add_translated_readout_row(layout, 4, "最大输出占空比", "tempMaxOutputDutyLabel", "-- %")
+        self._add_translated_readout_row(layout, 5, "控制状态", "tempRunStateLabel", "等待接入", translate_value=True)
+        self._add_translated_readout_row(layout, 6, "错误码", "tempErrorCodeLabel", "--")
         return group
 
     def _build_control_group(self) -> QGroupBox:
-        group = QGroupBox("控制")
+        group = QGroupBox()
+        self._rt.title(group, "控制")
         layout = QGridLayout(group)
         layout.setHorizontalSpacing(8)
         layout.setVerticalSpacing(6)
@@ -547,28 +564,37 @@ class TemperaturePanel(QWidget):
         rate.setSuffix(" °C/h")
         rate.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
 
-        fast = self._register("tempFastSet", QPushButton("快速设温"))
-        ramp = self._register("tempRamp", QPushButton("按速率控温"))
-        stop = self._register("tempStopHeating", QPushButton("关闭输出"))
+        fast = self._register("tempFastSet", QPushButton())
+        self._rt.text(fast, "快速设温")
+        ramp = self._register("tempRamp", QPushButton())
+        self._rt.text(ramp, "按速率控温")
+        stop = self._register("tempStopHeating", QPushButton())
+        self._rt.text(stop, "关闭输出")
 
         fast.clicked.connect(self.apply_fast_set)
         ramp.clicked.connect(self.apply_rate_set)
         stop.clicked.connect(self.stop_heating)
 
-        layout.addWidget(QLabel("目标温度"), 0, 0)
+        target_label = QLabel()
+        self._rt.text(target_label, "目标温度")
+        rate_label = QLabel()
+        self._rt.text(rate_label, "控温速率")
+        layout.addWidget(target_label, 0, 0)
         layout.addWidget(target, 0, 1)
         layout.addWidget(fast, 1, 0)
         layout.addWidget(ramp, 1, 1)
-        layout.addWidget(QLabel("控温速率"), 2, 0)
+        layout.addWidget(rate_label, 2, 0)
         layout.addWidget(rate, 2, 1)
         layout.addWidget(stop, 3, 0, 1, 2)
         return group
 
     def _build_plot_group(self) -> QGroupBox:
-        group = QGroupBox("温度曲线")
+        group = QGroupBox()
+        self._rt.title(group, "温度曲线")
         layout = QVBoxLayout(group)
         plot = self._register("tempPlot", TemperaturePlotWidget())
-        label = self._register("tempPlotStatusLabel", QLabel("等待实时读数"))
+        label = self._register("tempPlotStatusLabel", QLabel())
+        self._rt.text(label, "等待实时读数")
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("color: #64748b; font-weight: 700;")
         layout.addWidget(plot)
@@ -578,6 +604,17 @@ class TemperaturePanel(QWidget):
     def _add_readout_row(self, layout: QGridLayout, row: int, caption: str, name: str, text: str) -> None:
         layout.addWidget(QLabel(caption), row, 0)
         layout.addWidget(self._make_readout(name, text), row, 1)
+
+    def _add_translated_readout_row(
+        self, layout: QGridLayout, row: int, caption_zh: str, name: str, text: str, translate_value: bool = False
+    ) -> None:
+        cap = QLabel()
+        self._rt.text(cap, caption_zh)
+        layout.addWidget(cap, row, 0)
+        readout = self._make_readout(name, text)
+        if translate_value:
+            self._rt.text(readout, text)
+        layout.addWidget(readout, row, 1)
 
     def _make_readout(self, name: str, text: str) -> QLabel:
         label = self._register(name, QLabel(text))
@@ -606,7 +643,7 @@ class TemperaturePanel(QWidget):
             if index >= 0:
                 combo.setCurrentIndex(index)
         combo.blockSignals(False)
-        self._set_status("RD105 端口已刷新")
+        self._set_status(self._tr("RD105 端口已刷新"))
 
     def toggle_connection(self) -> None:
         if self._disconnect_in_flight:
@@ -618,12 +655,12 @@ class TemperaturePanel(QWidget):
 
     def connect_to_device(self) -> bool:
         if self._disconnect_in_flight:
-            self._set_status("RD105 正在断开连接，请稍候")
+            self._set_status(self._tr("RD105 正在断开连接，请稍候"))
             return False
         port = self.controls["tempPortCombo"].currentText().strip() or DEFAULT_TEMPERATURE_CONTROLLER_PORT
         controller = self.controller_factory(port)
         self.controller = controller
-        self._set_status(f"RD105 正在连接：{port}", flush=True)
+        self._set_status(self._tr("RD105 正在连接：{port}").format(port=port), flush=True)
         # Blocking serial connect runs off the GUI thread (#6/I5); the click
         # returns immediately and the result lands in the slots below.
         self._connect_result = False
@@ -638,17 +675,17 @@ class TemperaturePanel(QWidget):
     def _handle_connect_result(self, port: str, success: bool) -> None:
         controller = self.controller
         if not success:
-            error = getattr(controller, "last_error", "") or "连接失败"
-            self.controls["tempConnectionLabel"].setText("连接失败")
+            error = getattr(controller, "last_error", "") or self._tr("连接失败")
+            self.controls["tempConnectionLabel"].setText(self._tr("连接失败"))
             self._set_status(f"RD105 {error}")
             self._connect_result = False
             return
 
         self.config["last_port"] = port
         save_config(self.config)
-        self.controls["tempConnectionLabel"].setText(f"已连接 {port}")
-        self.controls["tempConnect"].setText("断开连接")
-        self._set_status(f"RD105 已连接：{port}")
+        self.controls["tempConnectionLabel"].setText(self._tr("已连接 {port}").format(port=port))
+        self.controls["tempConnect"].setText(self._tr("断开连接"))
+        self._set_status(self._tr("RD105 已连接：{port}").format(port=port))
         self._connect_result = True
         if self.auto_poll:
             self.monitor_timer.start()
@@ -692,18 +729,18 @@ class TemperaturePanel(QWidget):
         controller = self.controller
         if controller is None:
             if not self._slots_disabled():
-                self.controls["tempConnectionLabel"].setText("已断开")
-                self.controls["tempConnect"].setText("开始连接")
+                self.controls["tempConnectionLabel"].setText(self._tr("已断开"))
+                self.controls["tempConnect"].setText(self._tr("开始连接"))
                 self.controls["tempConnect"].setEnabled(True)
-                self._set_status("RD105 已断开")
+                self._set_status(self._tr("RD105 已断开"))
             return
         if self._disconnect_in_flight:
             return
         self._disconnect_in_flight = True
         if not self._slots_disabled():
             self.controls["tempConnect"].setEnabled(False)
-            self.controls["tempConnectionLabel"].setText("正在断开")
-            self._set_status("RD105 正在断开连接（先关闭输出）")
+            self.controls["tempConnectionLabel"].setText(self._tr("正在断开"))
+            self._set_status(self._tr("RD105 正在断开连接（先关闭输出）"))
         self._serial_executor.submit(
             "disconnect",
             controller.disconnect,
@@ -724,10 +761,10 @@ class TemperaturePanel(QWidget):
         # Keep the hazard banner up if disconnect could NOT turn the output off
         # (still energized); otherwise the heater is off, so hide it.
         self._apply_heat_warning("关闭输出失败" if disable_error else "输出关闭")
-        self.controls["tempConnectionLabel"].setText("已断开（关闭输出失败）" if disable_error else "已断开")
-        self.controls["tempConnect"].setText("开始连接")
+        self.controls["tempConnectionLabel"].setText(self._tr("已断开（关闭输出失败）") if disable_error else self._tr("已断开"))
+        self.controls["tempConnect"].setText(self._tr("开始连接"))
         self.controls["tempConnect"].setEnabled(True)
-        self._set_status(f"RD105 {disable_error}" if disable_error else "RD105 已断开")
+        self._set_status(f"RD105 {disable_error}" if disable_error else self._tr("RD105 已断开"))
 
     def _handle_disconnect_failure(self, controller, message: str) -> None:
         self._disconnect_in_flight = False
@@ -735,10 +772,10 @@ class TemperaturePanel(QWidget):
         self._poll_in_flight_since = None
         if self._slots_disabled():
             return
-        self.controls["tempConnectionLabel"].setText("断开失败")
-        self.controls["tempConnect"].setText("断开连接")
+        self.controls["tempConnectionLabel"].setText(self._tr("断开失败"))
+        self.controls["tempConnect"].setText(self._tr("断开连接"))
         self.controls["tempConnect"].setEnabled(True)
-        self._set_status(f"RD105 断开失败：{message}", sticky=4)
+        self._set_status(self._tr("RD105 断开失败：{message}").format(message=message), sticky=4)
 
     def poll_temperature_once(self) -> None:
         if self.controller is None or not getattr(self.controller, "is_connected", False):
@@ -753,7 +790,7 @@ class TemperaturePanel(QWidget):
             since = self._poll_in_flight_since
             if since is not None and (self._clock() - since) > POLL_STUCK_TIMEOUT_SECONDS:
                 self._set_status(
-                    "RD105 通信丢失或读取卡死——温度轮询无响应，请检查连接（加热输出由看门狗保护）",
+                    self._tr("RD105 通信丢失或读取卡死——温度轮询无响应，请检查连接（加热输出由看门狗保护）"),
                     sticky=4,
                 )
                 # Recover: clear the in-flight latch so the NEXT timer tick can
@@ -783,7 +820,7 @@ class TemperaturePanel(QWidget):
         if self._slots_disabled():
             return
         if snapshot is None:
-            error = getattr(self.controller, "last_error", "") or "读取失败"
+            error = getattr(self.controller, "last_error", "") or self._tr("读取失败")
             self._set_status(f"RD105 {error}")
             return
         self.on_temperature_snapshot(snapshot)
@@ -819,7 +856,7 @@ class TemperaturePanel(QWidget):
         max_output_duty = snapshot.get("max_output_duty_percent")
         self.controls["tempMaxOutputDutyLabel"].setText(self._format_percent(max_output_duty))
         run_state = snapshot.get("run_state")
-        self.controls["tempRunStateLabel"].setText(str(run_state or "未知"))
+        self.controls["tempRunStateLabel"].setText(self._tr(str(run_state or "未知")))
         self._apply_heat_warning(run_state)
         error_code = snapshot.get("error_code")
         self.controls["tempErrorCodeLabel"].setText("--" if error_code is None else str(error_code))
@@ -829,11 +866,11 @@ class TemperaturePanel(QWidget):
         if safety_alarm:
             self._set_status(f"RD105 {safety_alarm}")
         elif control_error:
-            self._set_status(f"RD105 控温错误：{control_error}")
+            self._set_status(self._tr("RD105 控温错误：{control_error}").format(control_error=control_error))
         elif snapshot.get("software_ramp_active"):
             final_target = self._format_temperature(snapshot.get("software_ramp_final_target"))
             rate = self._format_rate(snapshot.get("software_ramp_rate_per_hour"))
-            self._set_status(f"RD105 软件斜坡控温中：目标 {final_target}，速率 {rate} °C/h")
+            self._set_status(self._tr("RD105 软件斜坡控温中：目标 {final_target}，速率 {rate} °C/h").format(final_target=final_target, rate=rate))
         else:
             # Don't let the 1 Hz steady-reading message overwrite a recent command
             # failure that was marked sticky; alarm/control-error/ramp branches above
@@ -842,7 +879,7 @@ class TemperaturePanel(QWidget):
             if remaining > 0:
                 self._status_sticky_polls = remaining - 1
             else:
-                self._set_status("RD105 实时读数已更新")
+                self._set_status(self._tr("RD105 实时读数已更新"))
 
     def _update_temperature_plot(self, snapshot: dict[str, object]) -> None:
         plot = self.controls.get("tempPlot")
@@ -851,7 +888,7 @@ class TemperaturePanel(QWidget):
         temperature = snapshot.get("temperature")
         setpoint = snapshot.get("effective_setpoint")
         self.controls["tempPlotStatusLabel"].setText(
-            f"当前 {self._format_temperature(temperature)} / 给定 {self._format_temperature(setpoint)}"
+            self._tr("当前 {cur} / 给定 {sp}").format(cur=self._format_temperature(temperature), sp=self._format_temperature(setpoint))
         )
 
     def _confirm(self, title: str, text: str) -> bool:
@@ -867,12 +904,11 @@ class TemperaturePanel(QWidget):
         target = float(self.controls["tempTargetSpin"].value())
         if target >= WARN_CONFIRM_TEMPERATURE:
             if not self._confirm(
-                "确认高温设定",
-                f"目标温度 {target:.2f} °C 超过 {WARN_CONFIRM_TEMPERATURE:g} °C，"
-                "请确认操作安全后再发送。确定设温？",
+                self._tr("确认高温设定"),
+                self._tr("目标温度 {target:.2f} °C 超过 {warn:g} °C，请确认操作安全后再发送。确定设温？").format(target=target, warn=WARN_CONFIRM_TEMPERATURE),
             ):
                 return False
-        self._set_status("RD105 正在发送快速设温", flush=True)
+        self._set_status(self._tr("RD105 正在发送快速设温"), flush=True)
         # Blocking set runs off the GUI thread (#6/I5).
         self._command_result = False
         self._serial_executor.submit(
@@ -891,12 +927,11 @@ class TemperaturePanel(QWidget):
         rate = float(self.controls["tempRateSpin"].value())
         if target >= WARN_CONFIRM_TEMPERATURE:
             if not self._confirm(
-                "确认高温设定",
-                f"目标温度 {target:.2f} °C 超过 {WARN_CONFIRM_TEMPERATURE:g} °C，"
-                "请确认操作安全后再发送。确定设温？",
+                self._tr("确认高温设定"),
+                self._tr("目标温度 {target:.2f} °C 超过 {warn:g} °C，请确认操作安全后再发送。确定设温？").format(target=target, warn=WARN_CONFIRM_TEMPERATURE),
             ):
                 return False
-        self._set_status("RD105 正在发送按速率控温", flush=True)
+        self._set_status(self._tr("RD105 正在发送按速率控温"), flush=True)
         self._command_result = False
         self._serial_executor.submit(
             "rate_set",
@@ -910,7 +945,7 @@ class TemperaturePanel(QWidget):
         controller = self._require_controller()
         if controller is None:
             return False
-        self._set_status("RD105 正在关闭输出", flush=True)
+        self._set_status(self._tr("RD105 正在关闭输出"), flush=True)
         self._command_result = False
         self._serial_executor.submit(
             "stop",
@@ -931,14 +966,15 @@ class TemperaturePanel(QWidget):
             return
         action_name, success_message = self._COMMAND_LABELS[kind]
         if not ok:
-            self._set_status(f"RD105 {action_name}失败：{getattr(controller, 'last_error', '')}", sticky=4)
+            err = getattr(controller, 'last_error', '')
+            self._set_status(self._tr("RD105 {action}失败：{err}").format(action=self._tr(action_name), err=err), sticky=4)
             self._command_result = False
             return
         self._command_result = True
         if kind == "stop":
-            self.controls["tempRunStateLabel"].setText("输出关闭")
+            self.controls["tempRunStateLabel"].setText(self._tr("输出关闭"))
             self._apply_heat_warning("输出关闭")
-            self._set_status("RD105 输出已关闭")
+            self._set_status(self._tr("RD105 输出已关闭"))
             self.poll_temperature_once()
             return
         self._after_temperature_command(target, success_message)
@@ -947,18 +983,18 @@ class TemperaturePanel(QWidget):
         if self._slots_disabled():
             return
         action_name, _ = self._COMMAND_LABELS[kind]
-        self._set_status(f"RD105 {action_name}失败：{message}", sticky=4)
+        self._set_status(self._tr("RD105 {action}失败：{message}").format(action=self._tr(action_name), message=message), sticky=4)
         self._command_result = False
 
     def _require_controller(self):
         if self.controller is None or not getattr(self.controller, "is_connected", False):
-            self._set_status("RD105 未连接，不能发送温控命令")
+            self._set_status(self._tr("RD105 未连接，不能发送温控命令"))
             return None
         return self.controller
 
     def _after_temperature_command(self, target: float, message: str) -> None:
         self.controls["tempTargetTempLabel"].setText(self._format_temperature(target))
-        self._set_status(f"RD105 {message}")
+        self._set_status(self._tr(message))
         self.poll_temperature_once()
 
     def _set_status(self, text: str, flush: bool = False, sticky: int = 0) -> None:
