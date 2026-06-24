@@ -269,22 +269,48 @@ STEP_SNAP = {
     4: (0.1, 1.0, 5.0, 10.0, 50.0, 100.0, 500.0),
 }
 
-# Device-PHOTO hotspot anchor positions, as (x_pct, y_pct) of the overview image
+# Device-PHOTO axis annotations, as (x_pct, y_pct) of the overview image
 # (0-100; y increases DOWNWARD, image-pixel convention). Used ONLY by
-# MainWindow._build_stage_map to place the hotspots on the photo. The gamepad's 2D
-# face-button selector does NOT use these — it navigates by SELECTOR_GRID_POSITIONS
-# (the GUI card grid, below), intentionally decoupled (2026-06-22) so selection
-# follows the on-screen card list rather than the scattered photo geometry.
+# MainWindow._build_stage_map. The gamepad's 2D face-button selector does NOT use
+# these — it navigates by SELECTOR_GRID_POSITIONS (the GUI card grid, below),
+# intentionally decoupled (2026-06-22) so selection follows the on-screen card list
+# rather than the scattered photo geometry.
+#
+# 2026-06-24 redesign: each axis now has TWO points instead of one. The label chip
+# floats at STAGE_MAP_AXIS_LABEL_POSITIONS and a leader-line arrow is drawn from the
+# chip to the real part at STAGE_MAP_AXIS_POSITIONS (the arrowhead "tip"). Splitting
+# the two lets a label sit clear of the cluttered sample-stage centre while the arrow
+# still points unambiguously at its motor/part. Both tables were hand-calibrated on
+# the actual photo via the interactive editor; tweak the tip to re-aim the arrow and
+# the label to move the chip. (Y2's tip was corrected here to the central camera /
+# slide carrier — it previously pointed too high.)
+#
+# STAGE_MAP_AXIS_POSITIONS = arrow TIP (where the part actually is on the photo).
 STAGE_MAP_AXIS_POSITIONS = {
-    1: (54, 84),   # X1  整体左右
-    2: (22, 76),   # Y1  整体前后
-    3: (45, 33),   # MicroscopeZ  显微镜上下 (NOT gamepad-selectable; triggers only)
-    4: (72, 50),   # Z   载玻片升降
-    5: (24, 66),   # X3  吸附台左右
-    6: (34, 58),   # Y3  吸附台前后
-    7: (69, 60),   # X2  载玻片左右
-    8: (56, 55),   # Y2  载玻片前后
-    9: (38, 48),   # R   样品旋转
+    1: (54.0, 84.0),   # X1  整体左右
+    2: (22.3, 73.0),   # Y1  整体前后
+    3: (49.3, 28.3),   # MicroscopeZ  显微镜上下 (NOT gamepad-selectable; triggers only)
+    4: (59.5, 53.5),   # Z   载玻片升降
+    5: (33.0, 59.5),   # X3  吸附台左右
+    6: (24.0, 63.6),   # Y3  吸附台前后
+    7: (69.0, 60.0),   # X2  载玻片左右
+    8: (44.8, 68.3),   # Y2  载玻片前后 (corrected: central camera/slide carrier)
+    9: (32.3, 46.1),   # R   样品旋转
+}
+
+# STAGE_MAP_AXIS_LABEL_POSITIONS = where the label CHIP floats (arrow start). Placed
+# clear of the stage centre so the chips do not pile on top of one another or hide
+# the parts. Same keys/convention as STAGE_MAP_AXIS_POSITIONS.
+STAGE_MAP_AXIS_LABEL_POSITIONS = {
+    1: (68.0, 93.0),   # X1
+    2: (9.5, 87.8),    # Y1
+    3: (66.3, 12.4),   # MicroscopeZ
+    4: (77.5, 47.6),   # Z
+    5: (7.0, 55.3),    # X3
+    6: (6.3, 73.2),    # Y3
+    7: (83.0, 71.0),   # X2
+    8: (57.8, 70.5),   # Y2
+    9: (13.8, 39.3),   # R
 }
 
 # Grid (col, row) of each gamepad-SELECTABLE axis, matching the GUI axis-card list

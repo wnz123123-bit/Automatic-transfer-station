@@ -42,6 +42,7 @@ from .axis_calibration import (
     AXIS9_TWIST_SPEED_DEG_S,
     GAMEPAD_MICROSCOPE_Z_SPEED_UM_S,
     STAGE_MAP_AXIS_POSITIONS,
+    STAGE_MAP_AXIS_LABEL_POSITIONS,
     coordinate_from_pulse,
     default_speed_for_axis,
     speed_options_for_axis,
@@ -111,6 +112,53 @@ class SpeedComboBox(QComboBox):
         return max(self._values)
 
 
+class _StageArrowOverlay(QWidget):
+    """Transparent overlay that draws a leader-line arrow from each axis label chip
+    to the real part on the photo. It sits above the image but below the chips and
+    ignores mouse events, so the chips and photo stay interactive while the arrows
+    keep each label visually tied to its motor/part regardless of where declutter
+    nudges the chip."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._segments: list[tuple[float, float, float, float, str]] = []
+
+    def set_segments(self, segments) -> None:
+        self._segments = list(segments)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        if not self._segments:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        for x1, y1, x2, y2, color in self._segments:
+            self._draw_arrow(painter, x1, y1, x2, y2, color)
+
+    @staticmethod
+    def _draw_arrow(painter, x1, y1, x2, y2, color) -> None:
+        dx, dy = x2 - x1, y2 - y1
+        length = (dx * dx + dy * dy) ** 0.5
+        if length < 1.0:
+            return
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux  # perpendicular unit vector
+        # White halo underlay first, so the colour line stays legible over the
+        # busy photo (dark motors, bright tabletop) at any zoom.
+        halo = QColor(255, 255, 255, 205)
+        painter.setPen(QPen(halo, 4.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        pen = QPen(QColor(color), 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        # Two arrowhead barbs at the tip (same style as the motion-pad chevrons).
+        barb, half = 9.0, 4.5
+        bx, by = x2 - ux * barb, y2 - uy * barb
+        painter.drawLine(QPointF(x2, y2), QPointF(bx + px * half, by + py * half))
+        painter.drawLine(QPointF(x2, y2), QPointF(bx - px * half, by - py * half))
+
+
 class StageMapWidget(QFrame):
     REFERENCE_SIZE = QSize(620, 640)
     MAX_MAP_HEIGHT = 640
@@ -119,7 +167,10 @@ class StageMapWidget(QFrame):
     def __init__(self, image_path: Path):
         super().__init__()
         self._base_pixmap = QPixmap(str(image_path)) if image_path.exists() else QPixmap()
-        self._hotspots: list[tuple[QPushButton, float, float, int, int]] = []
+        # Each hotspot: (button, label_x, label_y, tip_x, tip_y, base_w, base_h, color)
+        # where label_* is the chip anchor and tip_* is the part the arrow points at
+        # (all fractions 0..1). See STAGE_MAP_AXIS_POSITIONS / *_LABEL_POSITIONS.
+        self._hotspots: list[tuple] = []
         self._image_rect = QRect()
 
         self.setStyleSheet("background: #ffffff; border-radius: 8px;")
@@ -141,6 +192,12 @@ class StageMapWidget(QFrame):
                     Qt.SmoothTransformation,
                 )
             )
+
+        # Arrow overlay sits above the image but below the chips (created here so it
+        # is stacked above image_label; the chips raise_() themselves on top in
+        # add_hotspot). It draws the leader-line arrows each layout pass.
+        self._arrow_overlay = _StageArrowOverlay(self)
+        self._arrow_overlay.setGeometry(self.rect())
 
         # Overlay banner across the top of the image showing which axis the gamepad
         # currently has selected (amber to match the selected-hotspot highlight).
@@ -188,8 +245,29 @@ class StageMapWidget(QFrame):
     def minimumSizeHint(self) -> QSize:
         return QSize(300, 300)
 
-    def add_hotspot(self, button: QPushButton, x_pct: int, y_pct: int, width: int, height: int) -> None:
-        self._hotspots.append((button, x_pct / 100.0, y_pct / 100.0, width, height))
+    def add_hotspot(
+        self,
+        button: QPushButton,
+        label_x_pct: float,
+        label_y_pct: float,
+        tip_x_pct: float,
+        tip_y_pct: float,
+        width: int,
+        height: int,
+        color: str,
+    ) -> None:
+        self._hotspots.append(
+            (
+                button,
+                label_x_pct / 100.0,
+                label_y_pct / 100.0,
+                tip_x_pct / 100.0,
+                tip_y_pct / 100.0,
+                width,
+                height,
+                color,
+            )
+        )
         button.raise_()
         self._layout_contents()
 
@@ -230,9 +308,11 @@ class StageMapWidget(QFrame):
             self._image_rect.height() / self.REFERENCE_SIZE.height(),
         )
         label_scale = max(0.82, min(1.0, ref_scale))
-        # First pass: size each chip and record its desired (anchor) centre.
-        placed = []  # [button, width, height, cx, cy]
-        for button, x_pct, y_pct, base_width, base_height in self._hotspots:
+        # First pass: size each chip and record its desired (label-anchor) centre.
+        # tip_x/tip_y (the part the arrow points at) ride along untouched so the
+        # final pass can draw the arrow even after declutter moves the chip.
+        placed = []  # [button, width, height, cx, cy, tip_x, tip_y, color]
+        for button, x_pct, y_pct, tip_x, tip_y, base_width, base_height, color in self._hotspots:
             width = max(46, int(base_width * label_scale))
             height = max(26, int(base_height * label_scale))
             button.setFixedSize(width, height)
@@ -241,21 +321,33 @@ class StageMapWidget(QFrame):
             button.setFont(font)
             cx = self._image_rect.left() + self._image_rect.width() * x_pct
             cy = self._image_rect.top() + self._image_rect.height() * y_pct
-            placed.append([button, width, height, float(cx), float(cy)])
+            placed.append([button, width, height, float(cx), float(cy), tip_x, tip_y, color])
 
-        # Second pass: declutter. The fixed anchor positions place several chips on
-        # top of one another at smaller map sizes (the sample-stage axes cluster in
-        # the centre); nudge overlapping pairs apart so the labels stay near their
-        # part but no longer pile up. Re-runs on every resize.
+        # Second pass: declutter. The label anchors are hand-placed clear of one
+        # another, but at the minimum map size the scaled chips can still touch; this
+        # nudges any overlapping pair apart. The arrow (drawn next) keeps each chip
+        # tied to its part regardless of how far declutter moves it.
         self._declutter_hotspots(placed)
 
-        # Final pass: clamp inside the image and move.
-        for button, width, height, cx, cy in placed:
+        # Final pass: clamp the chip inside the image, move it, and record the arrow
+        # segment from the chip's final centre to its part tip.
+        segments = []
+        for button, width, height, cx, cy, tip_x, tip_y, color in placed:
             x = int(cx - width / 2)
             y = int(cy - height / 2)
             x = max(self._image_rect.left(), min(x, self._image_rect.right() - width + 1))
             y = max(self._image_rect.top(), min(y, self._image_rect.bottom() - height + 1))
             button.move(x, y)
+            chip_cx = x + width / 2.0
+            chip_cy = y + height / 2.0
+            tip_px = self._image_rect.left() + self._image_rect.width() * tip_x
+            tip_py = self._image_rect.top() + self._image_rect.height() * tip_y
+            segments.append((chip_cx, chip_cy, float(tip_px), float(tip_py), color))
+
+        self._arrow_overlay.setGeometry(self.rect())
+        self._arrow_overlay.lower()
+        self.image_label.lower()
+        self._arrow_overlay.set_segments(segments)
 
         self._position_selected_axis_label()
 
@@ -944,10 +1036,11 @@ class MainWindow(QMainWindow):
     def _build_stage_map(self) -> QFrame:
         stage_map = self._register("stageMap", StageMapWidget(STAGE_OVERVIEW_IMAGE))
         self._register("stageImageLabel", stage_map.image_label)
-        # Roles/colours stay here (presentation); the (x,y) anchors come from
-        # STAGE_MAP_AXIS_POSITIONS. NOTE: that photo-anchor table feeds ONLY these
-        # device-map hotspots — the gamepad's 2D face-button selector navigates by the
-        # separate SELECTOR_GRID_POSITIONS (GUI card grid), intentionally decoupled.
+        # Roles/colours stay here (presentation); the part-tip and label anchors come
+        # from STAGE_MAP_AXIS_POSITIONS / STAGE_MAP_AXIS_LABEL_POSITIONS. NOTE: those
+        # photo tables feed ONLY these device-map hotspots — the gamepad's 2D
+        # face-button selector navigates by the separate SELECTOR_GRID_POSITIONS (GUI
+        # card grid), intentionally decoupled.
         for axis_num, role, color in (
             (1, "整体左右", STAGE_COLOR),
             (2, "整体前后", STAGE_COLOR),
@@ -959,11 +1052,24 @@ class MainWindow(QMainWindow):
             (8, "载玻片前后", SLIDE_COLOR),
             (9, "样品旋转", ADSORB_COLOR),
         ):
-            x_pct, y_pct = STAGE_MAP_AXIS_POSITIONS[axis_num]
-            self._add_stage_hotspot(stage_map, AXIS_LABELS[axis_num], role, x_pct, y_pct, color)
+            tip_x, tip_y = STAGE_MAP_AXIS_POSITIONS[axis_num]
+            label_x, label_y = STAGE_MAP_AXIS_LABEL_POSITIONS[axis_num]
+            self._add_stage_hotspot(
+                stage_map, AXIS_LABELS[axis_num], role, label_x, label_y, tip_x, tip_y, color
+            )
         return stage_map
 
-    def _add_stage_hotspot(self, parent: StageMapWidget, axis: str, role: str, x_pct: int, y_pct: int, color: str) -> None:
+    def _add_stage_hotspot(
+        self,
+        parent: StageMapWidget,
+        axis: str,
+        role: str,
+        label_x_pct: float,
+        label_y_pct: float,
+        tip_x_pct: float,
+        tip_y_pct: float,
+        color: str,
+    ) -> None:
         # Show a short, single-line axis code on the chip and put the full
         # "轴 · 角色" in a tooltip. Two-line "MicroscopeZ\n显微镜上下" overflowed and
         # overlapped neighbours at the minimum window size, risking a wrong-axis
@@ -998,7 +1104,7 @@ class MainWindow(QMainWindow):
             }}
             """
         )
-        parent.add_hotspot(button, x_pct, y_pct, 54, 30)
+        parent.add_hotspot(button, label_x_pct, label_y_pct, tip_x_pct, tip_y_pct, 54, 30, color)
         button.clicked.connect(lambda checked=False, axis=axis: self._set_motion_status(f"{axis} 已选中", "off"))
 
     def _build_axis_control_panel(self) -> QWidget:

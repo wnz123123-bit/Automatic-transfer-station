@@ -528,15 +528,18 @@ class AxisCalibrationTests(unittest.TestCase):
         # must have a STEP_SNAP entry (else _gamepad_set_step crashes) AND a stage-map
         # position (else the 2D directional selector can't place it).
         from automatic_transfer_station.axis_calibration import (
-            STEP_SNAP, STAGE_MAP_AXIS_POSITIONS, SELECTOR_GRID_POSITIONS,
+            STEP_SNAP, STAGE_MAP_AXIS_POSITIONS, STAGE_MAP_AXIS_LABEL_POSITIONS,
+            SELECTOR_GRID_POSITIONS,
         )
         from automatic_transfer_station.gamepad_controller import SELECTOR_AXES
         for axis in SELECTOR_AXES:
             self.assertIn(axis, STEP_SNAP, f"axis {axis} missing STEP_SNAP -> snap_step KeyError")
             self.assertIn(axis, STAGE_MAP_AXIS_POSITIONS, f"axis {axis} missing stage-map position")
             self.assertIn(axis, SELECTOR_GRID_POSITIONS, f"axis {axis} missing selector grid position")
-        # All nine axes have a stage-map position; MicroscopeZ(3) is present but not selectable.
+        # All nine axes have a stage-map tip AND a label position (the arrow needs
+        # both); MicroscopeZ(3) is present but not selectable.
         self.assertEqual(set(range(1, 10)), set(STAGE_MAP_AXIS_POSITIONS))
+        self.assertEqual(set(range(1, 10)), set(STAGE_MAP_AXIS_LABEL_POSITIONS))
         # The selector grid covers EXACTLY the selectable axes (no MicroscopeZ).
         self.assertEqual(set(SELECTOR_AXES), set(SELECTOR_GRID_POSITIONS))
         self.assertNotIn(3, SELECTOR_GRID_POSITIONS)
