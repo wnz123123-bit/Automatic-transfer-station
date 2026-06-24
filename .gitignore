@@ -33,3 +33,6 @@ runtime/
 Thumbs.db
 .idea/
 .vscode/
+
+# Superpowers / subagent-driven-development scratch (plans live in docs/, not here)
+.superpowers/
