@@ -71,3 +71,40 @@ def save_language(lang: str, path: Path | None = None) -> None:
     if lang not in ("en", "zh"):
         return
     atomic_write_json(UI_SETTINGS_PATH if path is None else path, {"language": lang})
+
+
+class Retranslator:
+    def __init__(self, translator: "Translator"):
+        self._translator = translator
+        self._apply: list[Callable[[], None]] = []
+        translator.add_observer(self.retranslate)
+
+    def _add(self, fn: Callable[[], None]) -> None:
+        fn()
+        self._apply.append(fn)
+
+    def text(self, widget, zh: str) -> None:
+        self._add(lambda: widget.setText(self._translator.tr(zh)))
+
+    def title(self, widget, zh: str) -> None:
+        setter = getattr(widget, "setTitle", None) or widget.setWindowTitle
+        self._add(lambda: setter(self._translator.tr(zh)))
+
+    def tooltip(self, widget, zh: str) -> None:
+        self._add(lambda: widget.setToolTip(self._translator.tr(zh)))
+
+    def placeholder(self, widget, zh: str) -> None:
+        self._add(lambda: widget.setPlaceholderText(self._translator.tr(zh)))
+
+    def items(self, combo, zh_list: list[str]) -> None:
+        def apply():
+            for i, zh in enumerate(zh_list):
+                combo.setItemText(i, self._translator.tr(zh))
+        self._add(apply)
+
+    def custom(self, apply_fn: Callable[[], None]) -> None:
+        self._add(apply_fn)
+
+    def retranslate(self) -> None:
+        for fn in self._apply:
+            fn()

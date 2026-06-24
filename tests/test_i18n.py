@@ -81,5 +81,40 @@ class LanguagePersistenceTests(unittest.TestCase):
         self.assertEqual("en", load_language(self.path))
 
 
+class RetranslatorTests(unittest.TestCase):
+    def _trans(self):
+        from automatic_transfer_station.i18n import Translator
+        return Translator(lang="en", table={"温度控制": "Temperature Control"})
+
+    def test_text_applies_now_and_on_switch(self):
+        from automatic_transfer_station.i18n import Retranslator
+        t = self._trans()
+        r = Retranslator(t)
+
+        class W:
+            def __init__(self): self.t = None
+            def setText(self, v): self.t = v
+        w = W()
+        r.text(w, "温度控制")
+        self.assertEqual("Temperature Control", w.t)   # applied now (EN)
+        t.set_language("zh")
+        self.assertEqual("温度控制", w.t)               # live re-applied (ZH)
+
+    def test_items_preserve_index(self):
+        from automatic_transfer_station.i18n import Retranslator
+        t = self._trans()
+        r = Retranslator(t)
+
+        class Combo:
+            def __init__(self): self.texts = ["a", "b"]; self.idx = 1
+            def setItemText(self, i, v): self.texts[i] = v
+            def currentIndex(self): return self.idx
+            def count(self): return len(self.texts)
+        c = Combo()
+        r.items(c, ["温度控制", "温度控制"])
+        self.assertEqual(["Temperature Control", "Temperature Control"], c.texts)
+        self.assertEqual(1, c.currentIndex())
+
+
 if __name__ == "__main__":
     unittest.main()
