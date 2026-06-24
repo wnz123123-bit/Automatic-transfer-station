@@ -815,6 +815,9 @@ class MainWindow(QMainWindow):
         self.controller = controller
         self.nosepiece_controller = nosepiece_controller or DisabledNosepieceController()
         self.controls = {}
+        from .i18n import translator, Retranslator
+        self._translator = translator
+        self._retranslator = Retranslator(translator)
         self._motion_command_queue_factory = motion_command_queue_factory or (lambda parent: MotionCommandQueue(parent))
         self._motion_command_queue: MotionCommandQueue | None = None
         # Board open/close/reset blocking DLL calls run through this executor.
@@ -890,6 +893,20 @@ class MainWindow(QMainWindow):
         exit_button.setCursor(Qt.PointingHandCursor)
         exit_button.clicked.connect(self._request_exit)
         self.statusBar().addPermanentWidget(exit_button)
+        # Status-bar language toggle. Shows the OTHER language; clicking flips it and
+        # the whole UI retranslates live (Retranslator observer).
+        lang_toggle = self._register("languageToggle", QPushButton())
+        lang_toggle.setCursor(Qt.PointingHandCursor)
+        lang_toggle.setStyleSheet(
+            "QPushButton{background:#1f6f5b;color:#ffffff;font-weight:800;border:none;"
+            "border-radius:5px;padding:3px 12px;margin:0 4px;}"
+            "QPushButton:hover{background:#175d4c;}"
+        )
+        lang_toggle.clicked.connect(self._toggle_language)
+        self.statusBar().addPermanentWidget(lang_toggle)
+        self._retranslator.custom(
+            lambda b=lang_toggle: b.setText("中文" if self._translator.lang == "en" else "EN")
+        )
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -3088,6 +3105,9 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             self._exit_requested = True
             self.close()
+
+    def _toggle_language(self) -> None:
+        self._translator.set_language("zh" if self._translator.lang == "en" else "en")
 
     def closeEvent(self, event) -> None:
         # Refuse the OS window-manager X (a spontaneous close) unless the user went

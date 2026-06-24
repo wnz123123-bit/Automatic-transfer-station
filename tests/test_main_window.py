@@ -2077,6 +2077,26 @@ class MainWindowTests(unittest.TestCase):
         window.changeEvent(QEvent(QEvent.Type.ActivationChange))
         self.assertGreaterEqual(disarmed["n"], 1)
 
+    def test_language_toggle_button_flips_language_and_label(self):
+        from automatic_transfer_station.main_window import MainWindow
+        from automatic_transfer_station.i18n import translator
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        # conftest pins ZH on setup; a freshly built window is ZH, so the button offers EN.
+        toggle = window.controls["languageToggle"]
+        self.assertEqual("zh", translator.lang)
+        self.assertEqual("EN", toggle.text())
+        window._toggle_language()
+        self.assertEqual("en", translator.lang)
+        self.assertEqual("中文", toggle.text())
+        window._toggle_language()
+        self.assertEqual("zh", translator.lang)
+        self.assertEqual("EN", toggle.text())
+
 
 class Package6SafetyAffordanceTests(unittest.TestCase):
     """Package 6: GUI safety affordances."""
