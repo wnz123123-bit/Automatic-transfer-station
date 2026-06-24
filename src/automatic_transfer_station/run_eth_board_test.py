@@ -102,6 +102,9 @@ def build_nosepiece_controller_factory(args: argparse.Namespace):
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     configure_logging()
+    from .i18n import translator, load_language, save_language
+    translator.initialize(load_language())
+    translator.set_saver(save_language)
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv[:1])
