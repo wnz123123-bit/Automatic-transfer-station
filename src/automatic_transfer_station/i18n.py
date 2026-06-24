@@ -135,6 +135,12 @@ TRANSLATIONS.update({
     "MicroscopeZ 移动到点位 {name}: {value:.2f} pulse": "MicroscopeZ moved to point {name}: {value:.2f} pulse",
     "MicroscopeZ 点位已重命名为 {name}": "MicroscopeZ point renamed to {name}",
     "MicroscopeZ 已删除点位 {name}": "MicroscopeZ deleted point {name}",
+    # axis9 twist dialog direction combo
+    "顺时针": "Clockwise",
+    "逆时针": "Counter-clockwise",
+    # Z continuous dialog direction combo
+    "上升": "Up",
+    "下降": "Down",
     # axis9 twist dialog
     "相对角度": "Relative angle",
     "方向": "Direction",

@@ -2320,7 +2320,8 @@ class MainWindow(QMainWindow):
         angle.setSingleStep(1.0)
         angle.setValue(1.0)
         direction = self._register("axis9TwistDirection", QComboBox())
-        direction.addItems(("顺时针", "逆时针"))
+        direction.addItem(tr("顺时针"), 1)
+        direction.addItem(tr("逆时针"), -1)
         form.addWidget(QLabel(tr("相对角度")), 0, 0)
         form.addWidget(angle, 0, 1)
         form.addWidget(QLabel("deg"), 0, 2)
@@ -2345,7 +2346,7 @@ class MainWindow(QMainWindow):
     def _apply_axis9_twist(self, dialog: QDialog, angle_widget: QDoubleSpinBox, direction_widget: QComboBox) -> None:
         angle = float(angle_widget.value())
         direction_text = direction_widget.currentText()
-        sign = 1.0 if direction_text == "顺时针" else -1.0
+        sign = float(direction_widget.currentData())
 
         def action() -> float:
             current_angle = self.controller.get_axis9_angle()
@@ -2422,7 +2423,8 @@ class MainWindow(QMainWindow):
         distance.setSingleStep(10.0)
         distance.setValue(100.0)
         direction = self._register("zContinuousDirection", QComboBox())
-        direction.addItems(("上升", "下降"))
+        direction.addItem(tr("上升"), 1)
+        direction.addItem(tr("下降"), -1)
         form.addWidget(QLabel(tr("速度")), 0, 0)
         form.addWidget(speed, 0, 1)
         form.addWidget(QLabel("um/s"), 0, 2)
@@ -2457,7 +2459,7 @@ class MainWindow(QMainWindow):
         speed_um_s = float(speed_widget.value())
         distance_um = float(distance_widget.value())
         direction_text = direction_widget.currentText()
-        direction = 1 if direction_text == "上升" else -1
+        direction = int(direction_widget.currentData())
         speed = speed_to_pulse_per_ms(4, speed_um_s)
         step = step_to_pulse_delta(4, distance_um)
 
