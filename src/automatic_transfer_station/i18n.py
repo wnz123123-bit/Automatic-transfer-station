@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Callable
 
 from .paths import UI_SETTINGS_PATH
 from .json_store import atomic_write_json
+
+
+_log = logging.getLogger("ats.i18n")
 
 
 TRANSLATIONS: dict[str, str] = {}
@@ -25,7 +29,7 @@ TRANSLATIONS.update({
     "关闭运动控制": "Close motion control",
     "复位": "Reset",
     "运动控制未打开 - 预览模式": "Motion control closed – preview",
-    "角度回零": "Home angle",
+    "角度回零": "Home",
     "连续控制": "Continuous",
     "目标": "Target",
     "移动": "Move",
@@ -450,8 +454,14 @@ class Translator:
         self._lang = lang
         if self._saver is not None:
             self._saver(lang)
+        # Isolate observers: one failing observer (e.g. a panel whose closure hits a
+        # deleted widget) must NOT abort the loop and leave later panels stuck in the
+        # old language. Log and continue so EVERY panel retranslates.
         for cb in list(self._observers):
-            cb()
+            try:
+                cb()
+            except Exception:
+                _log.exception("language-change observer failed; continuing")
 
     def add_observer(self, cb: Callable[[], None]) -> None:
         self._observers.append(cb)
@@ -519,5 +529,10 @@ class Retranslator:
         self._add(apply_fn)
 
     def retranslate(self) -> None:
+        # Isolate each closure: one failing widget (e.g. destroyed) must not stop the
+        # rest of this panel's text from updating on a language switch.
         for fn in self._apply:
-            fn()
+            try:
+                fn()
+            except Exception:
+                _log.exception("retranslate closure failed; continuing")

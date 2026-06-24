@@ -138,6 +138,44 @@ class RetranslatorTests(unittest.TestCase):
         self.assertEqual(1, c.currentIndex())
 
 
+class RobustnessTests(unittest.TestCase):
+    def test_set_language_isolates_failing_observer(self):
+        from automatic_transfer_station.i18n import Translator
+        t = Translator(lang="en")
+        fired = []
+
+        def bad():
+            raise RuntimeError("boom")
+
+        t.add_observer(bad)
+        t.add_observer(lambda: fired.append(t.lang))
+        t.set_language("zh")  # must not raise
+        self.assertEqual(["zh"], fired, "a failing observer must not block later ones")
+
+    def test_retranslate_isolates_failing_closure(self):
+        from automatic_transfer_station.i18n import Translator, Retranslator
+        t = Translator(lang="en", table={"温度控制": "Temperature Control"})
+        r = Retranslator(t)
+
+        class Bad:
+            def __init__(self): self.n = 0
+            def setText(self, v):
+                # OK on the initial apply (at registration), raises on retranslate.
+                self.n += 1
+                if self.n > 1:
+                    raise RuntimeError("boom")
+
+        class Good:
+            def __init__(self): self.t = None
+            def setText(self, v): self.t = v
+
+        good = Good()
+        r.text(Bad(), "温度控制")   # registered first; raises on the language switch
+        r.text(good, "温度控制")
+        t.set_language("zh")  # must not raise; good must still update
+        self.assertEqual("温度控制", good.t)
+
+
 class TableAndDefaultTests(unittest.TestCase):
     def test_no_empty_english_values(self):
         from automatic_transfer_station.i18n import TRANSLATIONS, CONTEXT_TRANSLATIONS
