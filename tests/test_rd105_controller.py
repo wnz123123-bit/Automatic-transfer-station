@@ -1171,5 +1171,40 @@ class RD105WatchdogTests(unittest.TestCase):
         self.assertEqual([True], stopped)
 
 
+class RD105ControllerI18nTests(unittest.TestCase):
+    """Task-9: controller messages appear in English when language is set to EN."""
+
+    def test_rd105_validation_error_appears_in_english_when_en_mode(self):
+        from automatic_transfer_station.i18n import translator
+        from automatic_transfer_station.rd105_controller import TemperatureController
+
+        translator.set_language("en")
+        try:
+            controller = TemperatureController()
+            # max-duty validation is easy to trigger without serial hardware
+            controller._write_max_output_duty_locked(91)
+            self.assertNotIn("必须", controller.last_error, "Chinese must not appear in EN mode")
+            self.assertIn("duty", controller.last_error.lower(), "English expected in EN mode")
+        finally:
+            translator.initialize("zh")
+
+    def test_rd105_ramp_rate_error_appears_in_english_when_en_mode(self):
+        from automatic_transfer_station.i18n import translator
+        from automatic_transfer_station.rd105_controller import TemperatureController
+
+        translator.set_language("en")
+        try:
+            controller = TemperatureController()
+            controller._read_current_temperature_locked = lambda: 40.0
+            controller._apply_pid_for_target_locked = lambda target: True
+            controller._guard_current_temperature_before_heating_locked = lambda: (40.0, True)
+            result = controller.ramp_to_temperature(100.0, -1.0)
+            self.assertFalse(result)
+            self.assertNotIn("速率", controller.last_error, "Chinese must not appear in EN mode")
+            self.assertIn("rate", controller.last_error.lower(), "English expected in EN mode")
+        finally:
+            translator.initialize("zh")
+
+
 if __name__ == "__main__":
     unittest.main()

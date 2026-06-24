@@ -978,5 +978,28 @@ class GasMotionControllerTests(unittest.TestCase):
         self.assertFalse(any(c[0] == "update" for c in api.calls))
 
 
+class GasMotionControllerI18nTests(unittest.TestCase):
+    """Task-9: controller messages appear in English when language is set to EN."""
+
+    def test_gas_microscope_z_sanity_cap_error_appears_in_english_when_en_mode(self):
+        from automatic_transfer_station.controller_base import MotionControllerError
+        from automatic_transfer_station.gas_controller import GasMotionController
+        from automatic_transfer_station.i18n import translator
+
+        translator.set_language("en")
+        try:
+            api = FakeApi()
+            controller = GasMotionController(api=api)
+            controller.is_open = True
+            # An int32-overflow target triggers the first Chinese error message
+            with self.assertRaises(MotionControllerError) as ctx:
+                controller.move_axis3_to_position(3e9)
+            message = str(ctx.exception)
+            self.assertNotIn("脉冲", message, "Chinese must not appear in EN mode")
+            self.assertIn("int32", message, "English expected in EN mode")
+        finally:
+            translator.initialize("zh")
+
+
 if __name__ == "__main__":
     unittest.main()

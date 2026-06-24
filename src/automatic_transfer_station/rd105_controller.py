@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import serial
 
+from .i18n import tr
 from .rd105_config import (
     DEFAULT_TEMPERATURE_CONTROLLER_PORT,
     MAX_MAX_OUTPUT_DUTY_PERCENT,
@@ -247,7 +248,7 @@ class TemperatureController:
             )
             self.is_connected = bool(self.ser and self.ser.is_open)
             if not self.is_connected:
-                self._set_last_error(f"串口 {self.port} 打开失败")
+                self._set_last_error(tr("串口 {port} 打开失败").format(port=self.port))
                 return False
 
             self._reset_buffers_locked()
@@ -260,7 +261,7 @@ class TemperatureController:
             return True
         except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
             self._close_serial_locked()
-            self._set_last_error(f"连接失败: {exc}")
+            self._set_last_error(tr("连接失败: {exc}").format(exc=exc))
             return False
 
     def connect(self):
@@ -298,17 +299,17 @@ class TemperatureController:
         try:
             if not self._set_enable_locked(False):
                 # Do not raise/crash, but record that the output was NOT closed.
-                if "关闭输出失败" not in (self.last_error or ""):
-                    self._set_last_error("断开连接时关闭输出失败")
+                if not self.last_error:
+                    self._set_last_error(tr("断开连接时关闭输出失败"))
         except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
-            self._set_last_error(f"断开连接时关闭输出失败: {exc}")
+            self._set_last_error(tr("断开连接时关闭输出失败: {exc}").format(exc=exc))
         except Exception as exc:
-            self._set_last_error(f"断开连接时关闭输出失败: {exc}")
+            self._set_last_error(tr("断开连接时关闭输出失败: {exc}").format(exc=exc))
 
     def _ensure_connected_locked(self):
         if self.ser and self.ser.is_open:
             return True
-        self._set_last_error("串口未连接")
+        self._set_last_error(tr("串口未连接"))
         self.is_connected = False
         return False
 
@@ -338,15 +339,15 @@ class TemperatureController:
                     time.sleep(0.005)
                     return text
 
-                last_error = "RD105 未返回数据"
-                self._set_last_error(f"第 {attempt} 次通信失败: {last_error}")
+                last_error = tr("RD105 未返回数据")
+                self._set_last_error(tr("第 {attempt} 次通信失败: {last_error}").format(attempt=attempt, last_error=last_error))
             except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
-                last_error = f"串口通信异常: {exc}"
+                last_error = tr("串口通信异常: {exc}").format(exc=exc)
                 self._set_last_error(last_error)
                 self._close_serial_locked()
                 break
             except Exception as exc:
-                last_error = f"通信过程中发生异常: {exc}"
+                last_error = tr("通信过程中发生异常: {exc}").format(exc=exc)
                 self._set_last_error(last_error)
 
             if attempt < self.MAX_RETRIES:
@@ -370,14 +371,14 @@ class TemperatureController:
         response = self._send_ascii_command_locked(f"{name}=?@")
         value = self._extract_response_value(response, (f"OK{name}=", f"OK:{name}="))
         if value is None:
-            self._set_last_error(f"RD105 回复格式异常: {response}")
+            self._set_last_error(tr("RD105 回复格式异常: {response}").format(response=response))
         return value
 
     def _query_ascii_value_locked(self, name):
         response = self._send_ascii_command_locked(f"TC{RD105_CHANNEL}:{name}=?@")
         value = self._extract_response_value(response, (f"OKTC{RD105_CHANNEL}:{name}=",))
         if value is None:
-            self._set_last_error(f"RD105 回复格式异常: {response}")
+            self._set_last_error(tr("RD105 回复格式异常: {response}").format(response=response))
         return value
 
     def _write_ascii_value_locked(self, name, value):
@@ -386,7 +387,7 @@ class TemperatureController:
         expected = f"OK{command}"
         if response == expected:
             return True
-        self._set_last_error(f"RD105 写入 {name} 失败，回复: {response or '无'}")
+        self._set_last_error(tr("RD105 写入 {name} 失败，回复: {response}").format(name=name, response=response or tr("无")))
         return False
 
     def _write_verified_value_locked(self, name, value):
@@ -401,7 +402,7 @@ class TemperatureController:
         # surfaced) rather than raising through the write path.
         actual_int = _safe_int(actual_value)
         if actual_int is None or actual_int != expected_value:
-            self._set_last_error(f"RD105 写入 {name} 后读回不一致: 写入 {expected_value}，读回 {actual_value}")
+            self._set_last_error(tr("RD105 写入 {name} 后读回不一致: 写入 {expected_value}，读回 {actual_value}").format(name=name, expected_value=expected_value, actual_value=actual_value))
             return False
         return True
 
@@ -432,7 +433,7 @@ class TemperatureController:
     def _is_heating_allowed_locked(self):
         if self.over_temperature_alarm:
             self._set_last_error(
-                f"超温/温度读数保护中：当前温度高于 {MAX_TARGET_TEMPERATURE:.1f} °C 或读数无效，等待恢复后才能继续加热"
+                tr("超温/温度读数保护中：当前温度高于 {max_temp:.1f} °C 或读数无效，等待恢复后才能继续加热").format(max_temp=MAX_TARGET_TEMPERATURE)
             )
             return False
         return True
@@ -447,11 +448,11 @@ class TemperatureController:
         data = self._parse_data_demand(response)
         temp_raw = data.get(f"TC{RD105_CHANNEL}:TCADJTEMP")
         if temp_raw is None:
-            self._set_last_error(f"RD105 实时温度缺失: {response}")
+            self._set_last_error(tr("RD105 实时温度缺失: {response}").format(response=response))
             return None
         temperature = self._decode_temperature_value(temp_raw)
         if temperature is None:
-            self._set_last_error("RD105 实时温度读数无效")
+            self._set_last_error(tr("RD105 实时温度读数无效"))
         return temperature
 
     def _read_target_temperature_locked(self):
@@ -465,7 +466,7 @@ class TemperatureController:
             try:
                 return self._read_target_temperature_locked()
             except Exception as exc:
-                self._set_last_error(f"读取目标温度时出错: {exc}")
+                self._set_last_error(tr("读取目标温度时出错: {exc}").format(exc=exc))
                 return None
 
     def _read_enable_state_locked(self):
@@ -475,7 +476,7 @@ class TemperatureController:
         value = _safe_int(raw_value)
         if value is None:
             if raw_value is not None:
-                self._set_last_error(f"RD105 输出使能读数格式异常: {raw_value}")
+                self._set_last_error(tr("RD105 输出使能读数格式异常: {raw_value}").format(raw_value=raw_value))
             return None
         self.last_enable_state = bool(value)
         return self.last_enable_state
@@ -485,7 +486,7 @@ class TemperatureController:
             try:
                 return self._read_enable_state_locked()
             except Exception as exc:
-                self._set_last_error(f"读取输出使能时出错: {exc}")
+                self._set_last_error(tr("读取输出使能时出错: {exc}").format(exc=exc))
                 return None
 
     def _read_max_output_duty_locked(self):
@@ -493,7 +494,7 @@ class TemperatureController:
         value = _safe_int(raw_value)
         if value is None:
             if raw_value is not None:
-                self._set_last_error(f"RD105 最大输出占空比读数格式异常: {raw_value}")
+                self._set_last_error(tr("RD105 最大输出占空比读数格式异常: {raw_value}").format(raw_value=raw_value))
             return None
         self.last_max_output_duty = value
         return self.last_max_output_duty
@@ -503,7 +504,7 @@ class TemperatureController:
             try:
                 return self._read_max_output_duty_locked()
             except Exception as exc:
-                self._set_last_error(f"读取最大输出占空比时出错: {exc}")
+                self._set_last_error(tr("读取最大输出占空比时出错: {exc}").format(exc=exc))
                 return None
 
     def _read_error_code_locked(self, force=False):
@@ -514,7 +515,7 @@ class TemperatureController:
         value = _safe_int(raw_value)
         if value is None:
             if raw_value is not None:
-                self._set_last_error(f"RD105 错误码读数格式异常: {raw_value}")
+                self._set_last_error(tr("RD105 错误码读数格式异常: {raw_value}").format(raw_value=raw_value))
             return self.last_error_code
         self.last_error_code = value
         self._last_error_poll_time = now
@@ -525,7 +526,7 @@ class TemperatureController:
             try:
                 return self._read_error_code_locked(force=force)
             except Exception as exc:
-                self._set_last_error(f"读取错误码时出错: {exc}")
+                self._set_last_error(tr("读取错误码时出错: {exc}").format(exc=exc))
                 return self.last_error_code
 
     def _write_pid_parameters_locked(self, kp, ki, kd):
@@ -535,7 +536,7 @@ class TemperatureController:
             success_d = self._write_verified_value_locked("KD", int(round(float(kd))))
             return success_p and success_i and success_d
         except Exception as exc:
-            self._set_last_error(f"写入 PID 参数时出错: {exc}")
+            self._set_last_error(tr("写入 PID 参数时出错: {exc}").format(exc=exc))
             return False
 
     def write_pid_parameters(self, kp, ki, kd):
@@ -545,7 +546,7 @@ class TemperatureController:
     def _write_max_output_duty_locked(self, duty_percent):
         if not self._is_max_output_duty_valid(duty_percent):
             self._set_last_error(
-                f"最大输出占空比必须在 {MIN_MAX_OUTPUT_DUTY_PERCENT}~{MAX_MAX_OUTPUT_DUTY_PERCENT} % 之间"
+                tr("最大输出占空比必须在 {min_duty}~{max_duty} % 之间").format(min_duty=MIN_MAX_OUTPUT_DUTY_PERCENT, max_duty=MAX_MAX_OUTPUT_DUTY_PERCENT)
             )
             return False
         duty_value = int(round(float(duty_percent)))
@@ -598,7 +599,7 @@ class TemperatureController:
     def _apply_pid_for_target_locked(self, target_temperature):
         profile = select_pid_profile(target_temperature, self.pid_profiles)
         if profile is None:
-            self._set_last_error(f"目标温度 {target_temperature:.2f} °C 没有匹配的 PID 参数")
+            self._set_last_error(tr("目标温度 {target_temp:.2f} °C 没有匹配的 PID 参数").format(target_temp=target_temperature))
             return False
         max_output_duty = profile.get("max_output_duty")
         if max_output_duty is not None and not self._write_max_output_duty_locked(max_output_duty):
@@ -654,7 +655,7 @@ class TemperatureController:
 
         if abs(next_setpoint - ramp.last_setpoint) >= 0.00001:
             if not self._set_target_temperature_locked(next_setpoint):
-                control_error = self.last_error or "软件斜坡 TG 写入失败"
+                control_error = self.last_error or tr("软件斜坡 TG 写入失败")
                 self._cancel_software_ramp_locked()
                 return None, control_error
             ramp.last_setpoint = float(next_setpoint)
@@ -732,7 +733,7 @@ class TemperatureController:
                     "software_ramp_rate_per_hour": None if ramp is None else ramp.rate_per_hour,
                 }
             except Exception as exc:
-                self._set_last_error(f"读取实时数据时出错: {exc}")
+                self._set_last_error(tr("读取实时数据时出错: {exc}").format(exc=exc))
                 return None
 
     def _set_target_temperature_locked(self, target_temperature):
@@ -753,7 +754,7 @@ class TemperatureController:
             try:
                 if not self._is_target_temperature_valid(target_temperature):
                     self._set_last_error(
-                        f"目标温度必须在 {MIN_TARGET_TEMPERATURE:.1f}~{MAX_TARGET_TEMPERATURE:.1f} °C 之间"
+                        tr("目标温度必须在 {min_temp:.1f}~{max_temp:.1f} °C 之间").format(min_temp=MIN_TARGET_TEMPERATURE, max_temp=MAX_TARGET_TEMPERATURE)
                     )
                     return False
                 if not self._is_heating_allowed_locked():
@@ -770,7 +771,7 @@ class TemperatureController:
                     return False
                 return self._set_enable_locked(True)
             except Exception as exc:
-                self._set_last_error(f"快速设温失败: {exc}")
+                self._set_last_error(tr("快速设温失败: {exc}").format(exc=exc))
                 return False
 
     def ramp_to_temperature(self, target_temperature, rate_per_hour):
@@ -778,18 +779,18 @@ class TemperatureController:
             try:
                 if not self._is_target_temperature_valid(target_temperature):
                     self._set_last_error(
-                        f"目标温度必须在 {MIN_TARGET_TEMPERATURE:.1f}~{MAX_TARGET_TEMPERATURE:.1f} °C 之间"
+                        tr("目标温度必须在 {min_temp:.1f}~{max_temp:.1f} °C 之间").format(min_temp=MIN_TARGET_TEMPERATURE, max_temp=MAX_TARGET_TEMPERATURE)
                     )
                     return False
                 if not self._is_heating_allowed_locked():
                     return False
                 rate_per_hour = float(rate_per_hour)
                 if rate_per_hour <= 0:
-                    self._set_last_error("控温速率必须大于 0 °C/小时")
+                    self._set_last_error(tr("控温速率必须大于 0 °C/小时"))
                     return False
                 if rate_per_hour > MAX_HEATING_RATE_C_PER_HOUR:
                     self._set_last_error(
-                        f"控温速率不能高于 {MAX_HEATING_RATE_C_PER_MIN:.1f} °C/分钟"
+                        tr("控温速率不能高于 {max_rate:.1f} °C/分钟").format(max_rate=MAX_HEATING_RATE_C_PER_MIN)
                     )
                     return False
                 self._cancel_software_ramp_locked()
@@ -823,7 +824,7 @@ class TemperatureController:
                     )
                 return True
             except Exception as exc:
-                self._set_last_error(f"按速率控温失败: {exc}")
+                self._set_last_error(tr("按速率控温失败: {exc}").format(exc=exc))
                 return False
 
     def stop_heating(self):
@@ -832,7 +833,7 @@ class TemperatureController:
                 self._cancel_software_ramp_locked()
                 return self._set_enable_locked(False)
             except Exception as exc:
-                self._set_last_error(f"关闭输出失败: {exc}")
+                self._set_last_error(tr("关闭输出失败: {exc}").format(exc=exc))
                 return False
 
     # ------------------------------------------------------------------ BP2
@@ -945,23 +946,23 @@ class TemperatureController:
                 try:
                     if self._set_enable_locked(False):
                         self._watchdog_io_done = True
-                        self._set_last_error(base)
+                        self._set_last_error(tr("通信丢失或轮询停止——已强制关闭加热输出"))
                         _audit.critical("RD105 watchdog: comm-loss/stale — forced ENABLE=0 succeeded. %s", base)
                     else:
                         # Write failed; leave _watchdog_io_done=False so the next
                         # tick retries. Record the failure so the UI sees it.
-                        self._set_last_error(f"{base}（关闭输出失败，将重试）")
+                        self._set_last_error(tr("通信丢失或轮询停止——已强制关闭加热输出（关闭输出失败，将重试）"))
                         _audit.critical(
                             "RD105 watchdog CRITICAL: comm-loss/stale — ENABLE=0 FAILED, will retry. %s", base
                         )
                 except (serial.SerialException, serial.SerialTimeoutException, OSError) as exc:
-                    self._set_last_error(f"{base}（关闭输出异常: {exc}，将重试）")
+                    self._set_last_error(tr("通信丢失或轮询停止——已强制关闭加热输出（关闭输出异常: {exc}，将重试）").format(exc=exc))
                     _audit.critical(
                         "RD105 watchdog CRITICAL: comm-loss/stale — ENABLE=0 raised %s, will retry. %s",
                         exc, base,
                     )
                 except Exception as exc:
-                    self._set_last_error(f"{base}（关闭输出异常: {exc}，将重试）")
+                    self._set_last_error(tr("通信丢失或轮询停止——已强制关闭加热输出（关闭输出异常: {exc}，将重试）").format(exc=exc))
                     _audit.critical(
                         "RD105 watchdog CRITICAL: comm-loss/stale — ENABLE=0 raised %s, will retry. %s",
                         exc, base,
@@ -979,7 +980,7 @@ class TemperatureController:
                 self._watchdog_trip_action()
         except Exception as exc:  # never let the watchdog thread die silently
             try:
-                self._set_last_error(f"看门狗检查异常: {exc}")
+                self._set_last_error(tr("看门狗检查异常: {exc}").format(exc=exc))
             except Exception:
                 pass
 

@@ -4,6 +4,7 @@ from functools import wraps
 import logging
 import threading
 
+from .i18n import tr
 from .controller_base import (
     ALL_AXES,
     AXIS9_DEGREES_PER_PULSE,
@@ -300,7 +301,7 @@ class GasMotionController:
             # of falling back to a velocity jog, which would discard the software
             # protection and rely only on the reactive watchdog.
             if axis_has_finite_soft_range(axis, self.axis_calibrations):
-                raise MotionControllerError(f"拒绝移动：该方向无安全行程 (axis {axis})")
+                raise MotionControllerError(tr("拒绝移动：该方向无安全行程 (axis {axis})").format(axis=axis))
 
             # Axis 3 (MicroscopeZ) has no finite soft range. It used to drive a
             # GA_PrfJog velocity jog here, but on the real card that mode did not
@@ -374,11 +375,10 @@ class GasMotionController:
         # target path (point move + relative jog) so the guard cannot drift between them.
         target = int(target)
         if not (-(2 ** 31) <= target <= 2 ** 31 - 1):
-            raise MotionControllerError("MicroscopeZ 目标脉冲超出 int32 范围，已拒绝")
+            raise MotionControllerError(tr("MicroscopeZ 目标脉冲超出 int32 范围，已拒绝"))
         if abs(target) > MICROSCOPE_Z_MAX_ABS_PULSE:
             raise MotionControllerError(
-                f"MicroscopeZ 目标脉冲 {target} 超出合理范围 "
-                f"(±{int(MICROSCOPE_Z_MAX_ABS_PULSE)})，已拒绝"
+                tr("MicroscopeZ 目标脉冲 {target} 超出合理范围 (±{bound})，已拒绝").format(target=target, bound=int(MICROSCOPE_Z_MAX_ABS_PULSE))
             )
 
     @_api_locked

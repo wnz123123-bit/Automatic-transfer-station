@@ -353,6 +353,65 @@ TRANSLATIONS.update({
     "当前 {cur} / 给定 {sp}": "Current {cur} / setpoint {sp}",
 })
 
+TRANSLATIONS.update({
+    # rd105_controller — serial / comm errors (user-facing last_error)
+    "串口 {port} 打开失败": "Serial port {port} failed to open",
+    "连接失败: {exc}": "Connection failed: {exc}",
+    "断开连接时关闭输出失败": "Disconnect: stop output failed",
+    "断开连接时关闭输出失败: {exc}": "Disconnect: stop output failed: {exc}",
+    "串口未连接": "Serial port not connected",
+    "RD105 未返回数据": "RD105 returned no data",
+    "第 {attempt} 次通信失败: {last_error}": "Comm attempt {attempt} failed: {last_error}",
+    "串口通信异常: {exc}": "Serial comm exception: {exc}",
+    "通信过程中发生异常: {exc}": "Exception during comm: {exc}",
+    "RD105 回复格式异常: {response}": "RD105 reply format error: {response}",
+    "RD105 写入 {name} 失败，回复: {response}": "RD105 write {name} failed, reply: {response}",
+    "无": "N/A",
+    "RD105 写入 {name} 后读回不一致: 写入 {expected_value}，读回 {actual_value}":
+        "RD105 write {name} readback mismatch: wrote {expected_value}, read back {actual_value}",
+    # rd105_controller — temperature guard / heating errors
+    "超温/温度读数保护中：当前温度高于 {max_temp:.1f} °C 或读数无效，等待恢复后才能继续加热":
+        "Over-temp / sensor-fault active: current temp above {max_temp:.1f} °C or reading invalid; heating blocked until resolved",
+    "RD105 实时温度缺失: {response}": "RD105 live temperature missing: {response}",
+    "RD105 实时温度读数无效": "RD105 live temperature reading invalid",
+    "读取目标温度时出错: {exc}": "Error reading target temperature: {exc}",
+    "RD105 输出使能读数格式异常: {raw_value}": "RD105 output-enable reading format error: {raw_value}",
+    "读取输出使能时出错: {exc}": "Error reading output enable: {exc}",
+    "RD105 最大输出占空比读数格式异常: {raw_value}": "RD105 max-duty reading format error: {raw_value}",
+    "读取最大输出占空比时出错: {exc}": "Error reading max output duty: {exc}",
+    "RD105 错误码读数格式异常: {raw_value}": "RD105 error-code reading format error: {raw_value}",
+    "读取错误码时出错: {exc}": "Error reading error code: {exc}",
+    "写入 PID 参数时出错: {exc}": "Error writing PID parameters: {exc}",
+    "最大输出占空比必须在 {min_duty}~{max_duty} % 之间":
+        "Max output duty must be between {min_duty}~{max_duty} %",
+    "目标温度 {target_temp:.2f} °C 没有匹配的 PID 参数":
+        "No matching PID profile for target {target_temp:.2f} °C",
+    "软件斜坡 TG 写入失败": "Software ramp TG write failed",
+    "读取实时数据时出错: {exc}": "Error reading live data: {exc}",
+    "目标温度必须在 {min_temp:.1f}~{max_temp:.1f} °C 之间":
+        "Target temperature must be between {min_temp:.1f}~{max_temp:.1f} °C",
+    "控温速率必须大于 0 °C/小时": "Ramp rate must be greater than 0 °C/h",
+    "控温速率不能高于 {max_rate:.1f} °C/分钟": "Ramp rate must not exceed {max_rate:.1f} °C/min",
+    "快速设温失败: {exc}": "Quick set failed: {exc}",
+    "按速率控温失败: {exc}": "Ramp set failed: {exc}",
+    "关闭输出失败: {exc}": "Stop output failed: {exc}",
+    # rd105_controller — watchdog messages
+    "通信丢失或轮询停止——已强制关闭加热输出":
+        "Comm lost or polling stopped — heater output force-disabled",
+    "通信丢失或轮询停止——已强制关闭加热输出（关闭输出失败，将重试）":
+        "Comm lost or polling stopped — heater output force-disable FAILED, will retry",
+    "通信丢失或轮询停止——已强制关闭加热输出（关闭输出异常: {exc}，将重试）":
+        "Comm lost or polling stopped — heater output force-disable raised {exc}, will retry",
+    "看门狗检查异常: {exc}": "Watchdog check exception: {exc}",
+    # gas_controller — MotionControllerError user messages
+    "拒绝移动：该方向无安全行程 (axis {axis})":
+        "Move refused: no safe travel in this direction (axis {axis})",
+    "MicroscopeZ 目标脉冲超出 int32 范围，已拒绝":
+        "MicroscopeZ target pulse out of int32 range; rejected",
+    "MicroscopeZ 目标脉冲 {target} 超出合理范围 (±{bound})，已拒绝":
+        "MicroscopeZ target pulse {target} out of sane range (±{bound}); rejected",
+})
+
 
 class Translator:
     def __init__(
