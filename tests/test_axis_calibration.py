@@ -28,10 +28,10 @@ class AxisCalibrationTests(unittest.TestCase):
         self.assertEqual(625398, pulse_from_coordinate(5, 1.25))
         self.assertEqual(187500, pulse_from_coordinate(9, 45.0))
 
-    def test_y1_positive_limit_and_axis3_hard_limits_are_intentionally_disabled(self):
+    def test_y1_and_axis3_hard_limit_configuration(self):
         from automatic_transfer_station.axis_calibration import AXIS_HARD_LIMITS
 
-        self.assertIsNone(AXIS_HARD_LIMITS[2].positive_io)
+        self.assertEqual(3, AXIS_HARD_LIMITS[2].positive_io)
         self.assertEqual(2, AXIS_HARD_LIMITS[2].negative_io)
         self.assertIsNone(AXIS_HARD_LIMITS[3].positive_io)
         self.assertIsNone(AXIS_HARD_LIMITS[3].negative_io)

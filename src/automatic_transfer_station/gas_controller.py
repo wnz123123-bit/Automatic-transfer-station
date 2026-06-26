@@ -3,6 +3,7 @@
 from functools import wraps
 import logging
 import threading
+import time
 
 from .i18n import tr
 from .controller_base import (
@@ -37,6 +38,20 @@ from .gas_api import AXIS_STATUS_NEG_HARD_LIMIT, AXIS_STATUS_POS_HARD_LIMIT, Gas
 
 _log = logging.getLogger("ats.motion")
 _audit = logging.getLogger("ats.audit")
+
+AXIS_STATUS_RUNNING = 0x00000400
+AXIS_STATUS_ARRIVE = 0x00000800
+
+AXIS9_HOME_APPROACH_DEGREES = 350.0
+AXIS9_HOME_APPROACH_SPEED_DEG_S = 2.0
+AXIS9_HOME_SEARCH_DEGREES = 18.0
+AXIS9_HOME_RAPID_SPEED_DEG_S = 0.25
+AXIS9_HOME_LOCATE_SPEED_DEG_S = 0.08
+AXIS9_HOME_INDEX_SPEED_DEG_S = 0.04
+AXIS9_HOME_ACCELERATION = 0.06
+AXIS9_HOME_DELAY_BEFORE_ZERO_MS = 300
+AXIS9_HOME_APPROACH_MIN_TIMEOUT_S = 35.0
+AXIS9_HOME_APPROACH_TIMEOUT_MARGIN_S = 10.0
 
 
 def _api_locked(method):
@@ -402,22 +417,51 @@ class GasMotionController:
         axis = AXIS9_NUM
         # The current GAS.dll is unstable when GA_HomeSetPrmSingle is called
         # directly from ctypes; the struct entrypoint matches the original C# path.
+        #
+        # Real-hardware check on 2026-06-24 placed the optical slit HOME window in
+        # the 350..365 deg range. Approach the lower side first, then let the card's
+        # native HOME state machine search forward with a bounded travel distance.
+        current_angle = self.get_axis9_angle()
+        self.move_axis9_to_angle(
+            AXIS9_HOME_APPROACH_DEGREES,
+            speed=self._axis9_home_velocity(AXIS9_HOME_APPROACH_SPEED_DEG_S),
+        )
+        self._wait_axis_arrive(axis, self._axis9_home_approach_timeout(current_angle))
+        self._check(self.api.clear_status(axis, 1), "GA_ClrSts(9)")
         self._check(
             self.api.home_set_prm(
                 axis,
                 home_mode=1,
                 home_direction=1,
                 offset=0,
-                rapid_velocity=10.0,
-                locate_velocity=2.0,
-                index_velocity=1.0,
-                acceleration=0.5,
-                delay_before_zero=3000,
-                home_max_distance=0,
+                rapid_velocity=self._axis9_home_velocity(AXIS9_HOME_RAPID_SPEED_DEG_S),
+                locate_velocity=self._axis9_home_velocity(AXIS9_HOME_LOCATE_SPEED_DEG_S),
+                index_velocity=self._axis9_home_velocity(AXIS9_HOME_INDEX_SPEED_DEG_S),
+                acceleration=AXIS9_HOME_ACCELERATION,
+                delay_before_zero=AXIS9_HOME_DELAY_BEFORE_ZERO_MS,
+                home_max_distance=round(AXIS9_HOME_SEARCH_DEGREES / AXIS9_DEGREES_PER_PULSE),
             ),
             "GA_HomeSetPrm(9)",
         )
         self._check(self.api.home_start(axis), "GA_HomeStart(9)")
+
+    def _axis9_home_velocity(self, degrees_per_second: float) -> float:
+        return float(degrees_per_second) / AXIS9_DEGREES_PER_PULSE / 1000.0
+
+    def _axis9_home_approach_timeout(self, current_angle: float) -> float:
+        travel_s = abs(float(current_angle) - AXIS9_HOME_APPROACH_DEGREES) / AXIS9_HOME_APPROACH_SPEED_DEG_S
+        return max(AXIS9_HOME_APPROACH_MIN_TIMEOUT_S, travel_s + AXIS9_HOME_APPROACH_TIMEOUT_MARGIN_S)
+
+    def _wait_axis_arrive(self, axis: int, timeout_s: float) -> None:
+        deadline = time.monotonic() + float(timeout_s)
+        while True:
+            status = self.api.get_status(axis)
+            if (status & AXIS_STATUS_ARRIVE) and not (status & AXIS_STATUS_RUNNING):
+                return
+            if time.monotonic() >= deadline:
+                self._check(self.api.stop(axis_mask(axis), 0), f"GA_Stop({axis})")
+                raise MotionControllerError(f"axis {axis} did not arrive before timeout")
+            time.sleep(0.02)
 
     @_api_locked
     def move_axis9_to_angle(self, angle: float, speed: float | None = None) -> None:

@@ -345,8 +345,9 @@ def snap_step(axis: int, current: float, delta: int) -> float:
 
 AXIS_HARD_LIMITS = {
     1: HardLimitConfig(positive_io=1, negative_io=0),
-    # Y1 positive/forward limit switch is known broken; keep only the confirmed negative IO2.
-    2: HardLimitConfig(negative_io=2),
+    # Y1 positive/forward limit repaired and retested on 2026-06-24:
+    # card0 IO3 becomes active at ~52.0 mm and releases near 51.78 mm.
+    2: HardLimitConfig(positive_io=3, negative_io=2),
     3: HardLimitConfig(),
     4: HardLimitConfig(positive_io=5, negative_io=4),
     5: HardLimitConfig(positive_io=6, negative_io=7),

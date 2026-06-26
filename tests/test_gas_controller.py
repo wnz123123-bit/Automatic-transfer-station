@@ -180,8 +180,9 @@ class GasMotionControllerTests(unittest.TestCase):
         # single-board network setup (card 0 is already the default) and would abort open.
         self.assertNotIn(("set_card_no", 0), api.calls)
         self.assertIn(("axis_on", 9), api.calls)
-        self.assertNotIn(("set_hard_limit_positive", 2, 1, 0, 3), api.calls)
+        self.assertIn(("set_hard_limit_positive", 2, 1, 0, 3), api.calls)
         self.assertIn(("set_hard_limit_negative", 2, 1, 0, 2), api.calls)
+        self.assertIn(("limits_on", 2, 0), api.calls)
         self.assertIn(("limits_on", 2, 1), api.calls)
         self.assertIn(("set_hard_limit_positive", 6, 1, 0, 14), api.calls)
         self.assertIn(("set_hard_limit_negative", 6, 1, 0, 9), api.calls)
@@ -553,18 +554,60 @@ class GasMotionControllerTests(unittest.TestCase):
         self.assertIn(("set_position", 3, 456), api.calls)
         self.assertIn(("update", 0b100), api.calls)
 
+    def test_axis9_home_prepositions_to_known_sensor_window_before_bounded_home(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        api = FakeApi()
+        api.statuses[9] = 0x800
+        controller = GasMotionController(api=api)
+        controller.is_open = True
+
+        controller.home_axis9()
+
+        home_call = next(call for call in api.calls if call[0] == "home_set_prm")
+        approach_call = ("set_position", 9, 1458333)
+        self.assertIn(approach_call, api.calls)
+        self.assertLess(api.calls.index(approach_call), api.calls.index(home_call))
+        self.assertEqual(("home_set_prm", 9, 1, 1), home_call[:4])
+        self.assertAlmostEqual(1.0416666666666667, home_call[5])
+        self.assertAlmostEqual(0.33333333333333337, home_call[6])
+        self.assertAlmostEqual(0.16666666666666669, home_call[7])
+        self.assertEqual(300, home_call[9])
+        self.assertEqual(75000, home_call[10])
+        self.assertIn(("home_start", 9), api.calls)
+
+    def test_axis9_home_approach_timeout_scales_with_distance_to_sensor_window(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        class CapturingHomeController(GasMotionController):
+            def __init__(self, api):
+                super().__init__(api=api)
+                self.wait_timeout = None
+
+            def _wait_axis_arrive(self, axis, timeout_s):
+                self.wait_timeout = timeout_s
+
+        api = FakeApi()
+        api.positions[9] = 0.0
+        controller = CapturingHomeController(api=api)
+        controller.is_open = True
+
+        controller.home_axis9()
+
+        self.assertIsNotNone(controller.wait_timeout)
+        self.assertAlmostEqual(185.0, controller.wait_timeout)
+
     def test_axis9_home_and_angle_move_match_current_behavior(self):
         from automatic_transfer_station.gas_controller import GasMotionController
 
         api = FakeApi()
+        api.statuses[9] = 0x800
         controller = GasMotionController(api=api)
         controller.is_open = True
 
         controller.home_axis9()
         controller.move_axis9_to_angle(45.0)
 
-        self.assertIn(("home_set_prm", 9, 1, 1, 0, 10.0, 2.0, 1.0, 0.5, 3000, 0), api.calls)
-        self.assertIn(("home_start", 9), api.calls)
         self.assertIn(("set_velocity", 9, 20.0), api.calls)
         self.assertIn(("set_position", 9, 187500), api.calls)
         self.assertIn(("update", 0b100000000), api.calls)

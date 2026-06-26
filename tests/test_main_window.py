@@ -1319,7 +1319,7 @@ class MainWindowTests(unittest.TestCase):
         get_app()
         window = MainWindow(controller=RecordingController(), motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
                             position_store_path=self.position_store_path)
-        self.assertEqual("0.0.1", __version__)
+        self.assertEqual("0.0.2", __version__)
         self.assertIn("versionLabel", window.controls)
         self.assertEqual(f"v{__version__}", window.controls["versionLabel"].text())
         # It is a permanent (right-aligned / bottom-right) status-bar widget.
