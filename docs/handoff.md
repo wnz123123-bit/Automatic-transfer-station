@@ -58,6 +58,15 @@ python .\run_transfer_station.py --nosepiece-port COM7
 python .\run_transfer_station.py --temperature-port COM5
 ```
 
+Basler 显微镜相机（`puA2500-14ucMIC`，默认序列号 `25141247`）：
+
+```powershell
+python -m pip install pypylon
+python -c "from pypylon import pylon; print([(d.GetModelName(), d.GetSerialNumber()) for d in pylon.TlFactory.GetInstance().EnumerateDevices()])"
+```
+
+正常启动会同时显示主窗口和 Basler 相机窗口；相机窗口不嵌入主控制 GUI。使用本程序相机窗口前关闭 pylon Viewer；Viewer 可能占用相机导致程序无法抓帧。截图保存到 `runtime\camera_snapshots\`。
+
 启用手柄控制（默认已启用，F710 背面 MODE 拨到 X）：
 
 ```powershell
@@ -92,7 +101,7 @@ python .\run_transfer_station.py --smoke-exit
 当前验证基线：
 
 ```text
-510 passed
+566 passed
 ```
 
 如果只是验证运动控制核心：
@@ -117,6 +126,9 @@ python -m pytest tests\test_gas_api.py tests\test_gas_controller.py tests\test_a
 | `src\automatic_transfer_station\microscope_position_store.py` | MicroscopeZ 多点位存储 |
 | `src\automatic_transfer_station\nosepiece_controller.py` | LV-NCNT2 电动物镜转盘串口控制 |
 | `src\automatic_transfer_station\objective_panel.py` | 物镜选择 GUI |
+| `src\automatic_transfer_station\camera_controller.py` | Basler `pypylon` 相机控制层（puA2500-14ucMIC，默认序列号 25141247） |
+| `src\automatic_transfer_station\camera_panel.py` | Basler 相机窗口内的预览 GUI、曝光/增益控制和截图 |
+| `src\automatic_transfer_station\camera_window.py` | 独立顶层 Basler 相机窗口 |
 | `src\automatic_transfer_station\rd105_controller.py` | RD105 温控串口控制 |
 | `src\automatic_transfer_station\temperature_panel.py` | 温控 GUI |
 | `src\automatic_transfer_station\paths.py` | 项目根目录、运行时目录、配置目录和 SDK 目录定义 |
@@ -437,6 +449,7 @@ runtime
 | `axis_positions.json` | 是 | 上次位置显示恢复，不写回运动卡 |
 | `axis_runtime_calibration.json` | 是，如果存在 | 用户运行时坐标标定 |
 | `microscope_z_positions.json` | 是，如果存在 | MicroscopeZ 点位管理 |
+| `camera_snapshots\camera-*.png` | 按需 | Basler 相机窗口截图；不是程序恢复必需状态 |
 | `nosepiece_trace.log` | 否 | `--nosepiece-trace` 物镜串口诊断日志，排查完可删 |
 | `pyside_*.png` | 否 | GUI 调试截图，可删 |
 | `preview_*.json` | 否 | 预览用临时数据，可删 |

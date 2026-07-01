@@ -272,6 +272,14 @@ class RecordingNosepieceController:
         self.position = position
 
 
+class RecordingCameraController:
+    def __init__(self):
+        self.calls = []
+
+    def close(self):
+        self.calls.append(("close",))
+
+
 class DelayedNosepieceController(RecordingNosepieceController):
     def __init__(self):
         super().__init__()
@@ -431,6 +439,60 @@ class MainWindowTests(unittest.TestCase):
             name = f"axisHotspot{axis}"
             self.assertIn(name, window.controls)
             self.assertTrue(has_ancestor(window.controls[name], window.controls["stageMap"]))
+
+    def test_main_window_creates_camera_window_outside_main_layout(self):
+        from PySide6.QtWidgets import QWidget
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+            camera_controller_factory=lambda: RecordingCameraController(),
+        )
+
+        camera_window = window.controls["cameraWindow"]
+        panel = window.controls["cameraPanel"]
+
+        self.assertIs(camera_window, window.camera_window)
+        self.assertTrue(camera_window.isWindow())
+        self.assertIsInstance(panel, QWidget)
+        self.assertEqual("cameraPanel", panel.objectName())
+        self.assertTrue(has_ancestor(panel, camera_window))
+        self.assertFalse(has_ancestor(panel, window.controls["stagePanel"]))
+        self.assertFalse(has_ancestor(panel, window.centralWidget()))
+        for name in (
+            "cameraConnect",
+            "cameraPreview",
+            "cameraSnapshot",
+            "cameraStatusLabel",
+            "cameraDeviceLabel",
+            "cameraImageLabel",
+            "cameraExposureAuto",
+            "cameraExposureSpin",
+            "cameraGainAuto",
+            "cameraGainSpin",
+        ):
+            self.assertIn(name, window.controls)
+            self.assertTrue(has_ancestor(window.controls[name], panel))
+
+    def test_prepare_for_close_calls_camera_window_prepare_for_close(self):
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+            camera_controller_factory=lambda: RecordingCameraController(),
+        )
+        calls = []
+        window.camera_window.close_after_prepare = lambda timeout_ms=5000: calls.append(timeout_ms) or True
+
+        window._prepare_for_close()
+
+        self.assertEqual([2000], calls)
 
     def test_pyside_axis_panel_uses_html_preview_card_model(self):
         from automatic_transfer_station.main_window import MainWindow
@@ -1319,7 +1381,7 @@ class MainWindowTests(unittest.TestCase):
         get_app()
         window = MainWindow(controller=RecordingController(), motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
                             position_store_path=self.position_store_path)
-        self.assertEqual("0.0.2", __version__)
+        self.assertEqual("0.0.3", __version__)
         self.assertIn("versionLabel", window.controls)
         self.assertEqual(f"v{__version__}", window.controls["versionLabel"].text())
         # It is a permanent (right-aligned / bottom-right) status-bar widget.

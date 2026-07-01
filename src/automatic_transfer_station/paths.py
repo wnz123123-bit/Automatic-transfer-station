@@ -50,6 +50,7 @@ else:
 CONFIG_DIR = PROJECT_ROOT / "config"
 DOCS_DIR = PROJECT_ROOT / "docs"
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
+CAMERA_SNAPSHOT_DIR = RUNTIME_DIR / "camera_snapshots"
 UI_SETTINGS_PATH = RUNTIME_DIR / "ui_settings.json"
 VENDOR_DIR = PROJECT_ROOT / "vendor"
 MOTION_CARD_SDK_DIR = VENDOR_DIR / "motion_card_sdk"

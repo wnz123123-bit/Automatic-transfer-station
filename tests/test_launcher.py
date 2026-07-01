@@ -132,6 +132,39 @@ class LauncherTests(unittest.TestCase):
 
         self.assertEqual(0, main(["--smoke-exit"]))
 
+    def test_normal_launch_shows_main_and_camera_windows(self):
+        from PySide6.QtWidgets import QApplication
+        from automatic_transfer_station import run_eth_board_test
+
+        calls = []
+
+        class FakeWindow:
+            def __init__(self, **kwargs):
+                calls.append(("construct", kwargs))
+
+            def show(self):
+                calls.append(("show_main",))
+
+            def show_camera_window(self):
+                calls.append(("show_camera",))
+
+        original_window = run_eth_board_test.MainWindow
+        original_build_controller = run_eth_board_test.build_controller
+        original_exec = QApplication.exec
+        try:
+            run_eth_board_test.MainWindow = FakeWindow
+            run_eth_board_test.build_controller = lambda args: object()
+            QApplication.exec = lambda self: 0
+
+            self.assertEqual(0, run_eth_board_test.main(["--no-gamepad"]))
+        finally:
+            run_eth_board_test.MainWindow = original_window
+            run_eth_board_test.build_controller = original_build_controller
+            QApplication.exec = original_exec
+
+        self.assertIn(("show_main",), calls)
+        self.assertIn(("show_camera",), calls)
+
     def test_default_real_smoke_exit_constructs_without_opening_network(self):
         from automatic_transfer_station import run_eth_board_test
 

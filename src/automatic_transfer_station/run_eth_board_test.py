@@ -152,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     window.show()
+    window.show_camera_window()
     return int(app.exec())
 
 

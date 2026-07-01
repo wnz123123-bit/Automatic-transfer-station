@@ -18,6 +18,9 @@ E:\Automatic transfer station
 │   ├── gas_controller.py        # Real motion-card controller
 │   ├── temperature_panel.py     # RD105 GUI panel
 │   ├── objective_panel.py       # LV-NCNT2 objective panel
+│   ├── camera_controller.py     # Basler pypylon camera controller
+│   ├── camera_panel.py          # Basler camera preview panel
+│   ├── camera_window.py         # Top-level Basler camera window
 │   ├── gamepad_xinput.py        # XInput ctypes read layer (GamepadReader/GamepadSnapshot)
 │   ├── gamepad_controller.py    # Pure decision logic: snapshot → motion intents
 │   └── gamepad_panel.py         # Qt panel (QGroupBox) with QTimer polling loop
@@ -56,6 +59,27 @@ With RD105 temperature controller:
 python .\run_transfer_station.py --temperature-port COM5
 ```
 
+### Basler camera preview
+
+The microscope camera opens as a second top-level window when launching the app
+normally. It targets the Basler `puA2500-14ucMIC` USB camera with serial
+`25141247`. Install Basler pylon Suite first, then install the Python binding in
+the same Python environment used to launch this app:
+
+```powershell
+python -m pip install pypylon
+```
+
+Quick smoke check:
+
+```powershell
+python -c "from pypylon import pylon; print([(d.GetModelName(), d.GetSerialNumber()) for d in pylon.TlFactory.GetInstance().EnumerateDevices()])"
+```
+
+Close pylon Viewer before using the camera window; the viewer can hold the camera
+open and prevent this application from grabbing frames. Snapshots are written to
+`runtime\camera_snapshots\`.
+
 ### Gamepad control (Logitech F710)
 
 Gamepad support is enabled by default (requires F710 set to **X mode** via the back-panel MODE switch). To disable it:
@@ -80,7 +104,7 @@ python .\run_transfer_station.py --smoke-exit
 Current baseline:
 
 ```text
-510 passed
+566 passed
 ```
 
 ## Runtime State
@@ -91,6 +115,7 @@ The GUI keeps controller readback and user calibration state in:
 runtime\axis_positions.json
 runtime\axis_runtime_calibration.json
 runtime\microscope_z_positions.json
+runtime\camera_snapshots\
 ```
 
 These files are display/state recovery files. They do not write saved values back into the motion card.

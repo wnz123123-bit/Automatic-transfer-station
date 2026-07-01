@@ -56,10 +56,11 @@ from .microscope_position_store import DEFAULT_MICROSCOPE_POSITION_STORE_PATH, M
 from .nosepiece_controller import DisabledNosepieceController, NosepieceController, NosepieceError
 from .objective_panel import ObjectivePanel
 from .axis_runtime_calibration_store import DEFAULT_RUNTIME_CALIBRATION_PATH, RuntimeAxisCalibrationStore
+from .camera_window import CameraWindow
 from .temperature_panel import TemperaturePanel
 from .gamepad_controller import GAMEPAD_AXES
 from .gamepad_panel import GamepadPanel
-from .paths import STAGE_OVERVIEW_IMAGE
+from .paths import CAMERA_SNAPSHOT_DIR, STAGE_OVERVIEW_IMAGE
 
 
 _log = logging.getLogger("ats.motion")
@@ -808,6 +809,8 @@ class MainWindow(QMainWindow):
         motion_command_queue_factory: Callable[[QObject], "MotionCommandQueue"] | None = None,
         board_action_executor: object | None = None,
         gamepad_reader=None,
+        camera_controller_factory: Callable[[], object] | None = None,
+        camera_snapshot_dir: str | Path = CAMERA_SNAPSHOT_DIR,
     ):
         super().__init__()
         app = QApplication.instance()
@@ -929,6 +932,11 @@ class MainWindow(QMainWindow):
             initial_port=temperature_port,
             baudrate=temperature_baud or 38400,
         )
+        self.camera_window = self._register("cameraWindow", CameraWindow(
+            register=self._register,
+            controller_factory=camera_controller_factory,
+            snapshot_dir=camera_snapshot_dir,
+        ))
 
         root.addWidget(self._build_stage_panel(), 30)
         root.addWidget(self._build_axis_control_panel(), 46)
@@ -1071,6 +1079,11 @@ class MainWindow(QMainWindow):
         root.addWidget(section)
         root.addWidget(self._register("objectivePanel", self.objective_panel))
         return panel
+
+    def show_camera_window(self) -> None:
+        self.camera_window.show()
+        self.camera_window.raise_()
+        self.camera_window.activateWindow()
 
     def _build_stage_map(self) -> QFrame:
         stage_map = self._register("stageMap", StageMapWidget(STAGE_OVERVIEW_IMAGE))
@@ -3086,6 +3099,9 @@ class MainWindow(QMainWindow):
                 current_nosepiece.disconnect()
             except NosepieceError as exc:
                 self.statusBar().showMessage(str(exc))
+        camera_window = getattr(self, "camera_window", None)
+        if camera_window is not None and hasattr(camera_window, "close_after_prepare"):
+            camera_window.close_after_prepare(timeout_ms=2000)
         temperature_panel = getattr(self, "temperature_panel", None)
         if temperature_panel is not None:
             # First, mark the panel closing and immediately detach any in-flight

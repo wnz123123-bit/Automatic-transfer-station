@@ -16,6 +16,8 @@ TRANSLATIONS: dict[str, str] = {}
 
 CONTEXT_TRANSLATIONS: dict[tuple[str, str], str] = {
     ("objective", "连接"): "Connect",
+    ("camera", "连接"): "Connect",
+    ("camera", "断开"): "Disconnect",
 }
 
 TRANSLATIONS.update({
@@ -193,6 +195,32 @@ TRANSLATIONS.update({
     # gamepad HUD detail
     "步长:{step_v:g} {step_unit} · 速度:{speed_v:g} {speed_unit}":
         "Step:{step_v:g} {step_unit} · Speed:{speed_v:g} {speed_unit}",
+})
+
+TRANSLATIONS.update({
+    # camera_panel — static widget text and dynamic messages
+    "Basler 相机": "Basler camera",
+    "相机预览": "Camera preview",
+    "相机: 未连接": "Camera: disconnected",
+    "相机: {model} ({serial})": "Camera: {model} ({serial})",
+    "无图像": "No image",
+    "开始预览": "Start preview",
+    "停止预览": "Stop preview",
+    "截图": "Snapshot",
+    "自动曝光": "Auto exposure",
+    "自动增益": "Auto gain",
+    "Basler 相机未连接": "Basler camera disconnected",
+    "正在连接相机...": "Connecting camera...",
+    "相机未连接": "Camera disconnected",
+    "相机预览中": "Camera preview running",
+    "截图失败: {error}": "Snapshot failed: {error}",
+    "截图已保存: {name}": "Snapshot saved: {name}",
+    "没有可保存的相机图像": "No camera image to save",
+    "Basler 相机已连接": "Basler camera connected",
+    "Basler 相机已断开": "Basler camera disconnected",
+    "曝光设置已发送": "Exposure setting sent",
+    "增益设置已发送": "Gain setting sent",
+    "预览失败: {error}": "Preview failed: {error}",
 })
 
 TRANSLATIONS.update({
