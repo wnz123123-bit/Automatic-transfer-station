@@ -65,6 +65,18 @@ python -m pip install pypylon
 python -c "from pypylon import pylon; print([(d.GetModelName(), d.GetSerialNumber()) for d in pylon.TlFactory.GetInstance().EnumerateDevices()])"
 ```
 
+Camera workstation notes: the Basler window is a separate top-level microscope
+workbench with a large left preview and grouped right-side controls. It
+auto-connects to the default Basler camera when the window opens, so the
+acquisition group only exposes Preview and Capture actions. It also supports save
+directory and filename templates, TIFF/PNG/JPG output, independent Live/Snap
+pixel-resolution choices, exposure/gain, Gamma, sharpness, default
+horizontal+vertical software flip, and two-point scale calibration per objective
+through a popup dialog. The default snapshot format is TIFF and the default
+filename template is `{date}_{time}_{objective}_{index}`. Saved images include a
+scale bar when the selected objective has a calibration entry in
+`runtime\camera_scale_calibration.json`.
+
 正常启动会同时显示主窗口和 Basler 相机窗口；相机窗口不嵌入主控制 GUI。使用本程序相机窗口前关闭 pylon Viewer；Viewer 可能占用相机导致程序无法抓帧。截图保存到 `runtime\camera_snapshots\`。
 
 启用手柄控制（默认已启用，F710 背面 MODE 拨到 X）：
@@ -101,7 +113,7 @@ python .\run_transfer_station.py --smoke-exit
 当前验证基线：
 
 ```text
-566 passed
+583 passed
 ```
 
 如果只是验证运动控制核心：
@@ -127,7 +139,9 @@ python -m pytest tests\test_gas_api.py tests\test_gas_controller.py tests\test_a
 | `src\automatic_transfer_station\nosepiece_controller.py` | LV-NCNT2 电动物镜转盘串口控制 |
 | `src\automatic_transfer_station\objective_panel.py` | 物镜选择 GUI |
 | `src\automatic_transfer_station\camera_controller.py` | Basler `pypylon` 相机控制层（puA2500-14ucMIC，默认序列号 25141247） |
-| `src\automatic_transfer_station\camera_panel.py` | Basler 相机窗口内的预览 GUI、曝光/增益控制和截图 |
+| `src\automatic_transfer_station\camera_image.py` | Camera image flip, QImage conversion, and scale-bar overlay helpers |
+| `src\automatic_transfer_station\camera_panel.py` | Basler 相机窗口内的预览 GUI、曝光/增益控制、清晰度、保存和比例尺标定 |
+| `src\automatic_transfer_station\camera_settings.py` | Basler camera window settings and objective scale calibration persistence |
 | `src\automatic_transfer_station\camera_window.py` | 独立顶层 Basler 相机窗口 |
 | `src\automatic_transfer_station\rd105_controller.py` | RD105 温控串口控制 |
 | `src\automatic_transfer_station\temperature_panel.py` | 温控 GUI |
@@ -233,14 +247,16 @@ worker 线程对每个动作捕获所有异常（包括 DLL 层抛出的裸 `Run
 | 左摇杆（轴5/6）| X3/Y3 连续，比例速度 |
 | 右摇杆（轴7/8）| X2/Y2 连续，比例速度 |
 | LT/RT（轴3）| MicroscopeZ 下/上；轻按单步，长按转连续（比例）。**速度固定 4 mm/s 上限**（`GAMEPAD_MICROSCOPE_Z_SPEED_UM_S`），**与 GUI 显微镜Z 速度档无关**，满扳机=4 mm/s |
-| LB/RB（轴4）| 样品台 Z 下/上；轻按单步，长按转连续（定速） |
+| LB/RB（轴3）| MicroscopeZ 下/上；**仅单步**，步长取 GUI 显微镜Z 步长档（`MICROSCOPE_Z_STEP_OPTIONS_UM = 1/5/10/50/100/500 µm`），按住不重复、不转连续 |
 | 十字键 上/下 | 当前"选中轴"按步长**单步** + / −（**仅单步，不连续、不自动重复**；若该轴正被摇杆连续驱动则抑制这次单步，避免冲突） |
 | 十字键 左/右 | 步长档 减小 / 增大（按该轴的 `STEP_SNAP` 吸附档位；与运动无关，连续移动中也可调） |
 | 面键 Y/A/X/B | **2D 方向选轴**：Y=上 / A=下 / X=左 / B=右，按 **GUI 卡片网格**（`SELECTOR_GRID_POSITIONS`）选该方向最近的可选轴（`directional_neighbor`，无候选则不动；不环绕）。上/下在同一列内、左/右在两列间，跟界面卡片列表习惯一致 |
 | START | 启用 / 停用手柄 |
 | BACK | 全部停止（直达，绕过运动队列） |
 
-> **2026-06-22 手柄重映射**：方向键选轴的 1-D 循环（旧 B/X）已改为面键 2-D 方向选择；十字键由"选轴轻按/长按连续"改为"上下单步点动 + 左右改步长"。可选轴 `SELECTOR_AXES` 由 6 个扩为 **8 个**：`(5,6,7,8,9,4,1,2)` = X3/Y3/X2/Y2/R/载玻片Z/**X1/Y1**（新增 X1/Y1）；**显微镜Z(3) 仍不可选**，由扳机 LT/RT 控制。`GAMEPAD_AXES=(5,6,7,8,9,3,4,1,2)`。**选轴几何**用 `SELECTOR_GRID_POSITIONS`（GUI 卡片网格：吸附台列 X3/Y3/R/X1、载玻片列 X2/Y2/Z/Y1），**与设备图热点的照片定位 `STAGE_MAP_AXIS_POSITIONS` 解耦**（后者只管照片上画热点；选轴跟界面列表走）。
+> **2026-06-22 手柄重映射**：方向键选轴的 1-D 循环（旧 B/X）已改为面键 2-D 方向选择；十字键由"选轴轻按/长按连续"改为"上下单步点动 + 左右改步长"。可选轴 `SELECTOR_AXES` 由 6 个扩为 **8 个**：`(5,6,7,8,9,4,1,2)` = X3/Y3/X2/Y2/R/载玻片Z/**X1/Y1**（新增 X1/Y1）；**显微镜Z(3) 仍不可选**，由 LT/RT 连续控制、LB/RB 单步控制。`GAMEPAD_AXES=(5,6,7,8,9,3,4,1,2)`。**选轴几何**用 `SELECTOR_GRID_POSITIONS`（GUI 卡片网格：吸附台列 X3/Y3/R/X1、载玻片列 X2/Y2/Z/Y1），**与设备图热点的照片定位 `STAGE_MAP_AXIS_POSITIONS` 解耦**（后者只管照片上画热点；选轴跟界面列表走）。
+
+> **2026-07-01 手柄微调**：`LB/RB` 不再控制载玻片 Z，也不再有长按连续语义；它们改为 MicroscopeZ 的单步下/上键，步长读取 GUI 的 `txtStep3` 固定档位。载玻片 Z 仍保留在 `SELECTOR_AXES` 中，可通过面键选中后用十字键上/下单步。
 
 当前选中轴在左侧设备图**顶部叠加横幅**显示，格式"手柄选中: X3 · 吸附台左右 · 步长 100 µm · 坐标 1.250 mm"（**含该轴实时步长与当前坐标，随 100ms 位置刷新实时更新**；R 轴用 °，启用手柄即显示、切轴更新、停用隐藏），同时设备图热点描边高亮（琥珀色 + ▶ 前缀）、对应轴卡高亮。横幅 `setWordWrap(True)` 且宽度钳到图像宽-8，长横幅**自动换行不溢出边框**。
 
@@ -449,7 +465,9 @@ runtime
 | `axis_positions.json` | 是 | 上次位置显示恢复，不写回运动卡 |
 | `axis_runtime_calibration.json` | 是，如果存在 | 用户运行时坐标标定 |
 | `microscope_z_positions.json` | 是，如果存在 | MicroscopeZ 点位管理 |
-| `camera_snapshots\camera-*.png` | 按需 | Basler 相机窗口截图；不是程序恢复必需状态 |
+| `camera_snapshots\*` | 按需 | Basler 相机窗口截图；默认 TIFF，也支持 PNG/JPG |
+| `camera_settings.json` | 是，如果存在 | Basler 相机窗口保存路径、文件名模板、Live/Snap 清晰度、显示翻转和图像设置 |
+| `camera_scale_calibration.json` | 是，如果存在 | 按倍率保存的 Basler 相机比例尺标定 |
 | `nosepiece_trace.log` | 否 | `--nosepiece-trace` 物镜串口诊断日志，排查完可删 |
 | `pyside_*.png` | 否 | GUI 调试截图，可删 |
 | `preview_*.json` | 否 | 预览用临时数据，可删 |
@@ -576,9 +594,10 @@ python -m automatic_transfer_station.gas_network_probe --ip 192.168.0.200 --mode
 - [ ] **D6 按住摇杆/扳机不应被误停用**（真机调试修正）：按住摇杆或扳机保持输入不变时，手柄**不得**自动停用；确认已移除 `_is_stale` packet 卡死误判检测，保留断连和中位失活自停即可。
 - [ ] **D7 面键 2D 方向选轴（跟 GUI 卡片网格）**（2026-06-22 重映射）：用 Y/A/X/B 上/下/左/右选轴，确认可达全部 8 个可选轴 **X3/Y3/X2/Y2/R/载玻片Z/X1/Y1**、显微镜Z(3) 选不到；方向跟界面卡片列表一致——上/下在同一列（吸附台列 X3→Y3→R→X1；载玻片列 X2→Y2→Z→Y1）、左/右在两列间切换。
 - [ ] **D8 设备图顶部横幅含步长+坐标、不溢出**（重映射）：手柄启用时设备图顶部琥珀色横幅显示如"手柄选中: X3 · 吸附台左右 · 步长 100 µm · 坐标 1.250 mm"，切轴更新、**坐标随移动实时刷新**、停用隐藏；R 轴单位为 °；**长横幅自动换行、不超出图片边框**。
-- [ ] **D9 显微镜Z 连续移动按住即走、松手即停**（真机调试修正，关键）：GUI 显微镜Z 连续按钮 + 手柄 LT/RT 扳机，**按住时立即连续移动**（不再"只在松手时动一下"）；松手立即停。速度档 **1000–4000 已实测平滑；5000 已移除**（步进失步——见 §6 真机调试第 9 项）。**手柄 LT/RT 现固定 4 mm/s 上限（与 GUI 速度档无关）**：直接满扳机确认顶速 4 mm/s、半按比例变慢，无需先设 GUI 速度档；GUI 显微镜Z 按钮仍按速度档（1000–4000）走。注意：sanity cap 是卡按钮后备，**轴3 仍无真实行程限位**，靠近光学/样品时务必人工监护。
+- [ ] **D9 显微镜Z 连续移动按住即走、松手即停**（真机调试修正，关键）：GUI 显微镜Z 连续按钮 + 手柄 LT/RT 扳机，**按住时立即连续移动**（不再"只在松手时动一下"）；松手立即停。速度档 **1000–4000 已实测平滑；5000 已移除**（步进失步——见 §6 真机调试第 9 项）。**手柄 LT/RT 现固定 4 mm/s 上限（与 GUI 速度档无关）**：直接满扳机确认顶速 4 mm/s、半按比例变慢，无需先设 GUI 速度档；GUI 显微镜Z 按钮仍按速度档（1000–4000）走。`LB/RB` 另作显微镜Z单步下/上，步长取 GUI 显微镜Z 步长档 `1/5/10/50/100/500 µm`，按住不重复、不转连续。注意：sanity cap 是卡按钮后备，**轴3 仍无真实行程限位**，靠近光学/样品时务必人工监护。
 - [ ] **D10 其它细分轴在 5000 是否也失步**（待反馈）：轴 4/5/6/7/8 同为 50000 脉冲/mm，5000 um/s = 250 kHz 步率与显微镜Z 相同，理论上也可能失步。若现场发现 X2/X3/Y2/Y3/载玻片Z 在 5000 档"按住不走/失步"，按显微镜Z 同法封顶（去掉对应速度档的 5000）。
 - [ ] **D11 十字键单步点动 + 左右改步长**（2026-06-22 重映射）：选中任一轴后，**十字键 上/下**确认按当前步长单步移动（+/−），**按住不连续、不自动重复**；**十字键 左/右**确认只改步长档（连续移动中也能改）。重点验证 **X1/Y1 现在可被手柄选中并单步点动**（它们的 GUI 点动按钮在手柄启用时应同时被禁用）。Y1(轴2) 正向硬限位已于 2026-06-24 修复复测并接入 `IO3`；靠近正向极限时仍按小步长人工监护。
+- [ ] **D11a LB/RB 显微镜Z 单步**（2026-07-01 微调）：确认 `LB=下`、`RB=上`，每次按下只执行一次当前 GUI `txtStep3` 步长；长按不重复、不连续；手柄启用时 GUI 轴3按钮仍被仲裁禁用。
 - [x] **D12 Y3/Y2 方向反转复验**（2026-06-22 方向纠正，**关键·安全**）：`pulse_sign` 已翻 -1。**✅ 真机已确认（2026-06-22）：Y3、Y2 方向正确、坐标读数一致，GUI 与手柄均无误。**
 
 ### E. RD105 温控

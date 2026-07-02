@@ -21,7 +21,7 @@ _audit = logging.getLogger("ats.audit")
 
 # Full F710 (XInput) mapping, shown in-UI via the "?" help button so the operator
 # never has to read source to learn that BACK is the emergency stop or that the
-# triggers drive the microscope Z.
+# shoulder/trigger controls drive the microscope Z.
 GAMEPAD_MAPPING_TEXT = (
     "START：启用 / 停用手柄\n"
     "BACK：急停（所有轴立即停止）\n\n"
@@ -33,9 +33,9 @@ GAMEPAD_MAPPING_TEXT = (
     "四个面键 选轴（按设备图布局的上下左右方向）：\n"
     "  Y=上  A=下  X=左  B=右\n\n"
     "扳机 LT / RT：显微镜 Z 下 / 上（轻按单步，长按连续；固定上限 4 mm/s 比例，与界面速度无关）\n"
-    "肩键 LB / RB：载玻片 Z 下 / 上（轻按单步，长按连续）\n\n"
+    "肩键 LB / RB：显微镜 Z 下 / 上（仅单步，步长取界面显微镜Z步长档）\n\n"
     "可选轴（面键 2D 选择）：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1\n"
-    "（显微镜Z 由扳机 LT/RT 控制，不在可选轴内）\n"
+    "（显微镜Z 由 LT/RT 连续控制、LB/RB 单步控制，不在可选轴内）\n"
     "当前选中轴会在左侧设备图横幅与高亮上显示（含步长与当前坐标）。"
 )
 

@@ -30,6 +30,12 @@ class F710HelpSvgTests(unittest.TestCase):
                       "启用 / 停用", "步长档", "选轴", "Space"):
             self.assertIn(token, self.svg, token)
 
+    def test_bumpers_are_microscope_z_step_not_slide_z(self):
+        self.assertNotIn("载玻片Z 下", self.svg)
+        self.assertNotIn("载玻片Z 上", self.svg)
+        self.assertIn("显微镜Z 下（单步）", self.svg)
+        self.assertIn("显微镜Z 上（单步）", self.svg)
+
     def test_face_buttons_use_brand_colours(self):
         # Y/A/X/B chips are coloured so the diagram matches the physical pad.
         for colour in ("#b8860b", "#2faf4e", "#2f7fd6", "#d83b3b"):
@@ -68,6 +74,10 @@ class F710HelpSvgI18nTests(unittest.TestCase):
             svg = build_f710_help_svg()
             self.assertIn("Left stick", svg)
             self.assertIn("Right stick", svg)
+            self.assertIn("Scope Z down (step)", svg)
+            self.assertIn("Scope Z up (step)", svg)
+            self.assertNotIn("Slide Z down", svg)
+            self.assertNotIn("Slide Z up", svg)
         finally:
             translator.initialize("zh")
 

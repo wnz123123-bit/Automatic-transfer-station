@@ -204,11 +204,40 @@ TRANSLATIONS.update({
     "相机: 未连接": "Camera: disconnected",
     "相机: {model} ({serial})": "Camera: {model} ({serial})",
     "无图像": "No image",
+    "预览": "Preview",
+    "拍照": "Capture",
     "开始预览": "Start preview",
     "停止预览": "Stop preview",
     "截图": "Snapshot",
+    "采集": "Acquisition",
+    "保存": "Save",
+    "目录": "Directory",
+    "浏览": "Browse",
+    "文件名": "Filename",
+    "格式": "Format",
+    "清晰度": "Quality",
+    "Live binning": "Live binning",
+    "Snap binning": "Snap binning",
+    "Live 像素": "Live pixels",
+    "Snap 像素": "Snap pixels",
+    "曝光/增益": "Exposure / gain",
     "自动曝光": "Auto exposure",
     "自动增益": "Auto gain",
+    "锐化": "Sharpness",
+    "比例尺": "Scale bar",
+    "倍率": "Objective",
+    "当前倍率": "Current objective",
+    "已知长度": "Known length",
+    "两点标定": "Two-point calibration",
+    "标定...": "Calibrate...",
+    "比例尺标定": "Scale calibration",
+    "开始两点标定": "Start two-point calibration",
+    "显示": "Display",
+    "关闭": "Close",
+    "水平翻转": "Flip horizontal",
+    "垂直翻转": "Flip vertical",
+    "选择保存目录": "Select save directory",
+    "未标定": "Uncalibrated",
     "Basler 相机未连接": "Basler camera disconnected",
     "正在连接相机...": "Connecting camera...",
     "相机未连接": "Camera disconnected",
@@ -216,11 +245,18 @@ TRANSLATIONS.update({
     "截图失败: {error}": "Snapshot failed: {error}",
     "截图已保存: {name}": "Snapshot saved: {name}",
     "没有可保存的相机图像": "No camera image to save",
+    "预览停止超时，已取消拍照以保护相机状态": "Preview did not stop in time; snapshot canceled to protect camera state",
+    "无法写入截图文件: {path}": "Cannot write snapshot file: {path}",
     "Basler 相机已连接": "Basler camera connected",
     "Basler 相机已断开": "Basler camera disconnected",
     "曝光设置已发送": "Exposure setting sent",
     "增益设置已发送": "Gain setting sent",
+    "图像设置已发送": "Image setting sent",
     "预览失败: {error}": "Preview failed: {error}",
+    "请在预览图像上点击标尺两端": "Click both ends of the scale reference in the preview",
+    "已记录第一个标定点": "First calibration point recorded",
+    "{objective}: 未标定": "{objective}: uncalibrated",
+    "{objective}: {value:.4g} um/pixel": "{objective}: {value:.4g} um/pixel",
 })
 
 TRANSLATIONS.update({
@@ -270,9 +306,9 @@ TRANSLATIONS.update({
     "四个面键 选轴（按设备图布局的上下左右方向）：\n"
     "  Y=上  A=下  X=左  B=右\n\n"
     "扳机 LT / RT：显微镜 Z 下 / 上（轻按单步，长按连续；固定上限 4 mm/s 比例，与界面速度无关）\n"
-    "肩键 LB / RB：载玻片 Z 下 / 上（轻按单步，长按连续）\n\n"
+    "肩键 LB / RB：显微镜 Z 下 / 上（仅单步，步长取界面显微镜Z步长档）\n\n"
     "可选轴（面键 2D 选择）：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1\n"
-    "（显微镜Z 由扳机 LT/RT 控制，不在可选轴内）\n"
+    "（显微镜Z 由 LT/RT 连续控制、LB/RB 单步控制，不在可选轴内）\n"
     "当前选中轴会在左侧设备图横幅与高亮上显示（含步长与当前坐标）。":
         "START: arm / disarm gamepad\n"
         "BACK: emergency stop (all axes stop immediately)\n\n"
@@ -284,9 +320,9 @@ TRANSLATIONS.update({
         "Face buttons select axis (by position on device diagram):\n"
         "  Y=up  A=down  X=left  B=right\n\n"
         "Triggers LT / RT: microscope Z down / up (tap=step, hold=continuous; capped at 4 mm/s proportional, independent of UI speed)\n"
-        "Bumpers LB / RB: slide Z down / up (tap=step, hold=continuous)\n\n"
+        "Bumpers LB / RB: microscope Z down / up (single step only; step size follows the UI MicroscopeZ step notch)\n\n"
         "Selectable axes (face-button 2D selection): X3 / Y3 / X2 / Y2 / R / Slide Z / X1 / Y1\n"
-        "(Microscope Z is controlled by triggers LT/RT, not in the selectable set)\n"
+        "(Microscope Z is controlled continuously by LT/RT and stepped by LB/RB, not in the selectable set)\n"
         "The currently selected axis is shown in the left-panel stage banner and highlight (including step and coordinate).",
     # gamepad_help — SVG labels
     "Logitech F710 手柄按键说明": "Logitech F710 Gamepad Key Reference",
@@ -307,12 +343,16 @@ TRANSLATIONS.update({
     "X2（左右）/ Y2（前后） 连续": "X2 (L-R) / Y2 (F-B) continuous",
     "载玻片Z 下": "Slide Z down",
     "显微镜Z 下": "Scope Z down",
+    "显微镜Z 下（单步）": "Scope Z down (step)",
     "轻按单步 · 长按连续 ≤4mm/s": "tap=step · hold=continuous ≤4mm/s",
     "载玻片Z 上": "Slide Z up",
     "显微镜Z 上": "Scope Z up",
+    "显微镜Z 上（单步）": "Scope Z up (step)",
     "MODE 拨到 X 模式": "Set MODE to X",
     "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）":
         "Selectable axes: X3 / Y3 / X2 / Y2 / R / Slide Z / X1 / Y1 (Scope Z by triggers LT/RT)",
+    "可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由 LT/RT 连续、LB/RB 单步控制）":
+        "Selectable axes: X3 / Y3 / X2 / Y2 / R / Slide Z / X1 / Y1 (Scope Z continuous by LT/RT, step by LB/RB)",
     "当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停":
         "Selected axis shown in stage banner (with step & coord) · Space key is also e-stop",
 })

@@ -326,9 +326,36 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("btnOpen", window.controls)
         self.assertIn("btnFwd3", window.controls)
         self.assertIn("txtSpeed3", window.controls)
+        self.assertIn("txtStep3", window.controls)
         self.assertIn("btnAxis9Home", window.controls)
         self.assertIsInstance(window.controls["txtSpeed3"], QComboBox)
         self.assertFalse(window.controls["txtSpeed3"].isEditable())
+        self.assertIsInstance(window.controls["txtStep3"], QComboBox)
+        self.assertFalse(window.controls["txtStep3"].isEditable())
+
+    def test_microscope_z_step_uses_fixed_options_and_default(self):
+        from PySide6.QtWidgets import QComboBox
+        from automatic_transfer_station.axis_calibration import STEP_SNAP
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+
+        step_combo = window.controls["txtStep3"]
+        self.assertIsInstance(step_combo, QComboBox)
+        self.assertFalse(step_combo.isEditable())
+        options = [float(step_combo.itemData(i)) for i in range(step_combo.count())]
+        self.assertEqual([1.0, 5.0, 10.0, 50.0, 100.0, 500.0], options)
+        self.assertEqual(tuple(options), STEP_SNAP[3])
+        self.assertEqual(500.0, step_combo.value())
+        self.assertEqual(25000, window._step(3))
+
+        step_combo.setValue(100.0)
+        self.assertEqual(5000, window._step(3))
 
     def test_main_window_embeds_real_temperature_panel_on_right(self):
         from PySide6.QtWidgets import QWidget
@@ -462,8 +489,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(has_ancestor(panel, camera_window))
         self.assertFalse(has_ancestor(panel, window.controls["stagePanel"]))
         self.assertFalse(has_ancestor(panel, window.centralWidget()))
+        self.assertNotIn("cameraConnect", window.controls)
         for name in (
-            "cameraConnect",
             "cameraPreview",
             "cameraSnapshot",
             "cameraStatusLabel",
@@ -473,9 +500,25 @@ class MainWindowTests(unittest.TestCase):
             "cameraExposureSpin",
             "cameraGainAuto",
             "cameraGainSpin",
+            "cameraObjectiveCombo",
         ):
             self.assertIn(name, window.controls)
             self.assertTrue(has_ancestor(window.controls[name], panel))
+
+    def test_objective_change_updates_camera_window_objective(self):
+        from automatic_transfer_station.main_window import MainWindow
+
+        get_app()
+        window = MainWindow(
+            controller=RecordingController(),
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+            camera_controller_factory=lambda: RecordingCameraController(),
+        )
+
+        window.objective_panel._complete_objective_move("20X", 3)
+
+        self.assertEqual("20X", window.controls["cameraObjectiveCombo"].currentText())
 
     def test_prepare_for_close_calls_camera_window_prepare_for_close(self):
         from automatic_transfer_station.main_window import MainWindow
@@ -1381,7 +1424,7 @@ class MainWindowTests(unittest.TestCase):
         get_app()
         window = MainWindow(controller=RecordingController(), motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
                             position_store_path=self.position_store_path)
-        self.assertEqual("0.0.3", __version__)
+        self.assertEqual("0.0.4", __version__)
         self.assertIn("versionLabel", window.controls)
         self.assertEqual(f"v{__version__}", window.controls["versionLabel"].text())
         # It is a permanent (right-aligned / bottom-right) status-bar widget.

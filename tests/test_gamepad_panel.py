@@ -114,12 +114,12 @@ class GamepadPanelTests(unittest.TestCase):
 
         self.assertIn("raw stop failure", "\n".join(cm.output))
 
-    def test_jog_uses_relative_move_with_gui_step(self):
+    def test_bumper_jog_uses_relative_move_with_gui_step_on_microscope_z(self):
         clk = Clk(); ctrl = RecMotion()
         reader = ScriptedReader([snap(buttons=BUTTON["START"]), snap(buttons=BUTTON["RB"])])
         panel, _ = self._panel(reader, clk, ctrl)
         panel.tick(); panel.tick()
-        self.assertIn(("relative_move", 4, 1, 100.0, 50), ctrl.calls)
+        self.assertIn(("relative_move", 3, 1, 100.0, 50), ctrl.calls)
 
     def test_x2x3_continuous_passes_partner_lookahead(self):
         clk = Clk()

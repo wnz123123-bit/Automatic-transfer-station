@@ -158,6 +158,17 @@ class ObjectivePanelThreadingTests(unittest.TestCase):
         self.assertTrue(wait_until(lambda: ("read_position",) in controller.calls))
         self.assertTrue(wait_until(lambda: "20X" in panel.controls["objectiveStatusLabel"].text()))
 
+    def test_objective_changed_signal_emits_on_successful_move_and_read(self):
+        panel = self._make_panel(RecordingNosepieceController())
+        changes = []
+        panel.objective_changed.connect(lambda label, position: changes.append((label, position)))
+
+        panel._complete_objective_move("20X", 3)
+        panel._apply_position(4)
+
+        self.assertIn(("20X", 3), changes)
+        self.assertIn(("40X", 4), changes)
+
     def test_wait_for_idle_waits_for_connect_worker(self):
         created = []
 

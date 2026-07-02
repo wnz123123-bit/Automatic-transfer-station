@@ -91,7 +91,7 @@ def build_f710_help_svg() -> str:
 
     # Footer notes.
     p.append(_text(500, 650,
-                   _tr("可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由扳机 LT/RT 控制）"),
+                   _tr("可选轴：X3 / Y3 / X2 / Y2 / R / 载玻片Z / X1 / Y1（显微镜Z 由 LT/RT 连续、LB/RB 单步控制）"),
                    size=13, anchor="middle", fill=_SUB))
     p.append(_text(500, 674,
                    _tr("当前选中轴在左侧设备图横幅显示（含步长与坐标） · Space 键也是急停"),
@@ -184,9 +184,9 @@ def _front_view(p: list[str]) -> None:
     p.append(f'<circle cx="500" cy="500" r="3" fill="{dark}"/>')
 
     # Callouts.
-    p.append(_callout(250, 452, "end", "LB", [_tr("载玻片Z 下")], (258, 452), (368, 456)))
+    p.append(_callout(250, 452, "end", "LB", [_tr("显微镜Z 下（单步）")], (258, 452), (368, 456)))
     p.append(_callout(250, 512, "end", "LT", [_tr("显微镜Z 下"), _tr("轻按单步 · 长按连续 ≤4mm/s")], (258, 512), (376, 510)))
-    p.append(_callout(750, 452, "start", "RB", [_tr("载玻片Z 上")], (742, 452), (632, 456)))
+    p.append(_callout(750, 452, "start", "RB", [_tr("显微镜Z 上（单步）")], (742, 452), (632, 456)))
     p.append(_callout(750, 512, "start", "RT", [_tr("显微镜Z 上"), _tr("轻按单步 · 长按连续 ≤4mm/s")], (742, 512), (624, 510)))
     p.append(_leader(500, 512, 500, 578))
     p.append(_text(500, 599, _tr("MODE 拨到 X 模式"), size=15, weight="700", anchor="middle"))

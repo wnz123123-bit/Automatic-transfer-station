@@ -42,6 +42,7 @@ from .axis_calibration import (
     AXIS_LABELS,
     AXIS9_TWIST_SPEED_DEG_S,
     GAMEPAD_MICROSCOPE_Z_SPEED_UM_S,
+    MICROSCOPE_Z_STEP_OPTIONS_UM,
     STAGE_MAP_AXIS_POSITIONS,
     STAGE_MAP_AXIS_LABEL_POSITIONS,
     coordinate_from_pulse,
@@ -108,7 +109,7 @@ class SpeedComboBox(QComboBox):
             if abs(option - float(value)) < 1e-9:
                 self.setCurrentIndex(index)
                 return
-        raise ValueError(f"{value:g} is not a configured speed option")
+        raise ValueError(f"{value:g} is not a configured option")
 
     def maximum(self) -> float:
         return max(self._values)
@@ -937,6 +938,7 @@ class MainWindow(QMainWindow):
             controller_factory=camera_controller_factory,
             snapshot_dir=camera_snapshot_dir,
         ))
+        self.objective_panel.objective_changed.connect(self.camera_window.set_objective)
 
         root.addWidget(self._build_stage_panel(), 30)
         root.addWidget(self._build_axis_control_panel(), 46)
@@ -1484,7 +1486,7 @@ class MainWindow(QMainWindow):
         settings.addWidget(speed_label, 0, 0)
         settings.addWidget(step_label, 0, 1)
         settings.addWidget(self._make_speed_combo(f"txtSpeed{axis}", axis), 1, 0)
-        settings.addWidget(self._make_spin(f"txtStep{axis}", step_value), 1, 1)
+        settings.addWidget(self._make_step_control(f"txtStep{axis}", axis, step_value), 1, 1)
         return settings
 
     def _add_axis3_mark_controls(self, layout: QVBoxLayout) -> None:
@@ -2508,6 +2510,12 @@ class MainWindow(QMainWindow):
     def _make_speed_combo(self, name: str, axis: int) -> SpeedComboBox:
         combo = SpeedComboBox(speed_options_for_axis(axis), default_speed_for_axis(axis))
         return self._register(name, combo)
+
+    def _make_step_control(self, name: str, axis: int, value: float):
+        if int(axis) == 3:
+            combo = SpeedComboBox(MICROSCOPE_Z_STEP_OPTIONS_UM, value)
+            return self._register(name, combo)
+        return self._make_spin(name, value)
 
     def _speed(self, axis: int) -> float:
         name = f"txtSpeed{axis}" if f"txtSpeed{axis}" in self.controls else f"txtSpeed{speed_axis_for(axis)}"

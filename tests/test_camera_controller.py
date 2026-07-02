@@ -48,6 +48,26 @@ class FakeCameraHandle:
     def set_gain(self, auto, value):
         self.calls.append(("set_gain", auto, value))
 
+    def capabilities(self):
+        from automatic_transfer_station.camera_controller import CameraCapabilities, FeatureRange
+
+        self.calls.append(("capabilities",))
+        return CameraCapabilities(
+            width=FeatureRange(4, 2592, 2),
+            height=FeatureRange(4, 1944, 2),
+            binning=FeatureRange(1, 4, 1),
+            exposure_ms=FeatureRange(0.01, 1000.0, None),
+            gain=FeatureRange(0.0, 24.0, None),
+            gamma=FeatureRange(0.25, 2.0, None),
+            sharpness=FeatureRange(0.0, 1.0, None),
+        )
+
+    def apply_acquisition_settings(self, settings):
+        self.calls.append(("apply_acquisition_settings", settings.width, settings.height, settings.binning))
+
+    def set_image_adjustment(self, gamma=None, sharpness=None):
+        self.calls.append(("set_image_adjustment", gamma, sharpness))
+
 
 class FakeBackend:
     def __init__(self, devices, handles):
@@ -97,6 +117,7 @@ class CameraControllerTests(unittest.TestCase):
 
     def test_preview_and_manual_settings_delegate_to_open_handle(self):
         from automatic_transfer_station.camera_controller import (
+            CameraAcquisitionSettings,
             BaslerCameraController,
             CameraDeviceInfo,
             CameraFrame,
@@ -116,6 +137,8 @@ class CameraControllerTests(unittest.TestCase):
         controller.start_preview()
         controller.set_exposure(auto=False, value_ms=12.5)
         controller.set_gain(auto=False, value=3.0)
+        controller.set_image_adjustment(gamma=1.2, sharpness=0.4)
+        controller.apply_acquisition_settings(CameraAcquisitionSettings(width=1296, height=972, binning=2))
         grabbed = controller.grab_one(timeout_ms=250)
         controller.stop_preview()
 
@@ -123,8 +146,41 @@ class CameraControllerTests(unittest.TestCase):
         self.assertIn(("start_preview",), handle.calls)
         self.assertIn(("set_exposure", False, 12.5), handle.calls)
         self.assertIn(("set_gain", False, 3.0), handle.calls)
+        self.assertIn(("set_image_adjustment", 1.2, 0.4), handle.calls)
+        self.assertIn(("apply_acquisition_settings", 1296, 972, 2), handle.calls)
         self.assertIn(("grab_rgb", 250), handle.calls)
         self.assertIn(("stop_preview",), handle.calls)
+
+    def test_capabilities_and_snap_settings_restore_live_settings(self):
+        from automatic_transfer_station.camera_controller import (
+            BaslerCameraController,
+            CameraAcquisitionSettings,
+            CameraDeviceInfo,
+            CameraFrame,
+        )
+
+        handle = FakeCameraHandle()
+        handle.next_frame = CameraFrame(width=4, height=2, rgb_bytes=bytes(range(24)))
+        controller = BaslerCameraController(
+            backend=FakeBackend(
+                [CameraDeviceInfo("puA2500-14ucMIC", "25141247", "BaslerUsb")],
+                {"25141247": handle},
+            )
+        )
+        controller.open()
+
+        caps = controller.capabilities()
+        frame = controller.grab_one_with_settings(
+            snap_settings=CameraAcquisitionSettings(width=2592, height=1944, binning=1),
+            restore_settings=CameraAcquisitionSettings(width=1296, height=972, binning=2),
+            timeout_ms=500,
+        )
+
+        self.assertEqual(2592, caps.width.max)
+        self.assertIs(frame, handle.next_frame)
+        self.assertIn(("apply_acquisition_settings", 2592, 1944, 1), handle.calls)
+        self.assertIn(("grab_rgb", 500), handle.calls)
+        self.assertEqual(("apply_acquisition_settings", 1296, 972, 2), handle.calls[-1])
 
     def test_close_stops_preview_before_closing_camera(self):
         from automatic_transfer_station.camera_controller import (

@@ -85,10 +85,10 @@ class GamepadConfig:
 # default-selected axis on first arm (X3).
 SELECTOR_AXES = (5, 6, 7, 8, 9, 4, 1, 2)  # X3, Y3, X2, Y2, R, Z, X1, Y1
 
-# Every axis the gamepad can drive (sticks 5/6/7/8, triggers 3, bumpers 4, plus the
-# selector set 1/2/4/5/6/7/8/9). Used for GUI-jog arbitration (disable while armed)
-# and for cancelling pending continuous jogs on an emergency stop — both of which
-# must also cover MicroscopeZ (axis 3) even though it isn't selectable.
+# Every axis the gamepad can drive (sticks 5/6/7/8, triggers + bumpers on 3,
+# plus the selector set 1/2/4/5/6/7/8/9). Used for GUI-jog arbitration (disable
+# while armed) and for cancelling pending continuous jogs on an emergency stop -
+# both of which must cover MicroscopeZ (axis 3) even though it isn't selectable.
 GAMEPAD_AXES = (5, 6, 7, 8, 9, 3, 4, 1, 2)
 
 
@@ -323,8 +323,8 @@ class GamepadController:
         cannot start one axis and stop another.  A control already held across an
         (re)arm has no fresh edge, so it is ignored until released and re-pressed.
 
-        Only the triggers (axis 3) and bumpers (axis 4) use _taphold now — and
-        neither shares an axis with the sticks (5/6/7/8) or the D-pad. So there is
+        Only the triggers (axis 3) use _taphold now, and they do not share an
+        axis with the sticks (5/6/7/8) or the D-pad. So there is
         no stick/tap-hold overlap to arbitrate on release (the old `active_stick_axes`
         Fix-1 path was removed with _active_stick_axes in the 2026-06-22 remap), and
         release always emits StopContinuous. Fix 2 (suppress the press-Jog when the
@@ -375,11 +375,15 @@ class GamepadController:
         self._taphold(out, "RT", rt, rt_edge, 3, +1, frac_when_held=lambda: _curve_trigger(snap.rt, self.cfg))
 
     def _handle_bumpers(self, snap, out):
-        # sample Z (axis 4): LB=down(-), RB=up(+); fixed-speed on hold.
-        self._taphold(out, "LB", snap.pressed(BUTTON["LB"]), self._edge(snap, BUTTON["LB"]),
-                      4, -1, frac_when_held=lambda: -1.0)
-        self._taphold(out, "RB", snap.pressed(BUTTON["RB"]), self._edge(snap, BUTTON["RB"]),
-                      4, +1, frac_when_held=lambda: 1.0)
+        # MicroscopeZ (axis 3) single-step keys: LB=down(-), RB=up(+). These are
+        # edge-only: no auto-repeat and no hold-to-continuous. If LT/RT already owns
+        # axis 3 continuously, suppress the bumper step so the commands do not fight.
+        if self._cont.get(3) is not None:
+            return
+        if self._edge(snap, BUTTON["LB"]):
+            out.append(Jog(3, -1))
+        elif self._edge(snap, BUTTON["RB"]):
+            out.append(Jog(3, +1))
 
     def _handle_dpad(self, snap, out):
         """D-pad on the SELECTED axis (2026-06-22 remap):

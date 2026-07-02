@@ -30,6 +30,31 @@ class CameraFrame:
     metadata: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class FeatureRange:
+    min: float
+    max: float
+    inc: float | None = None
+
+
+@dataclass(frozen=True)
+class CameraCapabilities:
+    width: FeatureRange | None = None
+    height: FeatureRange | None = None
+    binning: FeatureRange | None = None
+    exposure_ms: FeatureRange | None = None
+    gain: FeatureRange | None = None
+    gamma: FeatureRange | None = None
+    sharpness: FeatureRange | None = None
+
+
+@dataclass(frozen=True)
+class CameraAcquisitionSettings:
+    width: int
+    height: int
+    binning: int = 1
+
+
 class CameraHandle(Protocol):
     def open(self) -> None: ...
     def close(self) -> None: ...
@@ -38,6 +63,9 @@ class CameraHandle(Protocol):
     def grab_rgb(self, timeout_ms: int = 1000) -> CameraFrame: ...
     def set_exposure(self, auto: bool, value_ms: float | None) -> None: ...
     def set_gain(self, auto: bool, value: float | None) -> None: ...
+    def capabilities(self) -> CameraCapabilities: ...
+    def apply_acquisition_settings(self, settings: CameraAcquisitionSettings) -> None: ...
+    def set_image_adjustment(self, gamma: float | None, sharpness: float | None) -> None: ...
 
 
 class CameraBackend(Protocol):
@@ -164,12 +192,55 @@ class BaslerCameraController:
         except Exception as exc:  # noqa: BLE001
             raise CameraError(f"Failed to set camera gain: {exc}") from exc
 
+    def capabilities(self) -> CameraCapabilities:
+        handle = self._require_handle()
+        try:
+            return handle.capabilities()
+        except Exception as exc:  # noqa: BLE001
+            raise CameraError(f"Failed to read camera capabilities: {exc}") from exc
+
+    def apply_acquisition_settings(self, settings: CameraAcquisitionSettings) -> None:
+        handle = self._require_handle()
+        try:
+            handle.apply_acquisition_settings(settings)
+        except Exception as exc:  # noqa: BLE001
+            raise CameraError(f"Failed to set camera resolution: {exc}") from exc
+
+    def set_image_adjustment(self, gamma: float | None = None, sharpness: float | None = None) -> None:
+        handle = self._require_handle()
+        try:
+            handle.set_image_adjustment(gamma=gamma, sharpness=sharpness)
+        except Exception as exc:  # noqa: BLE001
+            raise CameraError(f"Failed to set camera image adjustment: {exc}") from exc
+
     def grab_one(self, timeout_ms: int = 1000) -> CameraFrame:
         handle = self._require_handle()
         try:
             frame = handle.grab_rgb(int(timeout_ms))
         except Exception as exc:  # noqa: BLE001
             raise CameraError(f"Failed to grab camera frame: {exc}") from exc
+        if frame is None:
+            raise CameraError("Camera returned no frame")
+        return frame
+
+    def grab_one_with_settings(
+        self,
+        snap_settings: CameraAcquisitionSettings,
+        restore_settings: CameraAcquisitionSettings | None = None,
+        timeout_ms: int = 1000,
+    ) -> CameraFrame:
+        handle = self._require_handle()
+        try:
+            handle.apply_acquisition_settings(snap_settings)
+            frame = handle.grab_rgb(int(timeout_ms))
+        except Exception as exc:  # noqa: BLE001
+            raise CameraError(f"Failed to grab camera frame: {exc}") from exc
+        finally:
+            if restore_settings is not None:
+                try:
+                    handle.apply_acquisition_settings(restore_settings)
+                except Exception:
+                    pass
         if frame is None:
             raise CameraError("Camera returned no frame")
         return frame
@@ -293,6 +364,30 @@ class PypylonCameraHandle:
         if not auto and value is not None:
             self._set_feature("Gain", float(value))
 
+    def capabilities(self) -> CameraCapabilities:
+        return CameraCapabilities(
+            width=self._range("Width"),
+            height=self._range("Height"),
+            binning=self._range("BinningHorizontal"),
+            exposure_ms=self._range("ExposureTime", scale=0.001),
+            gain=self._range("Gain"),
+            gamma=self._range("Gamma"),
+            sharpness=self._range("SharpnessEnhancement"),
+        )
+
+    def apply_acquisition_settings(self, settings: CameraAcquisitionSettings) -> None:
+        binning = max(1, int(settings.binning))
+        for name in ("BinningHorizontal", "BinningVertical"):
+            self._set_feature_if_available(name, binning)
+        self._set_feature_if_available("Width", int(settings.width))
+        self._set_feature_if_available("Height", int(settings.height))
+
+    def set_image_adjustment(self, gamma: float | None = None, sharpness: float | None = None) -> None:
+        if gamma is not None:
+            self._set_feature_if_available("Gamma", float(gamma))
+        if sharpness is not None:
+            self._set_feature_if_available("SharpnessEnhancement", float(sharpness))
+
     def _set_feature(self, name: str, value) -> None:
         try:
             feature = getattr(self._camera, name)
@@ -305,3 +400,25 @@ class PypylonCameraHandle:
             feature.Value = value
         except Exception as exc:  # noqa: BLE001
             raise CameraError(f"Camera feature {name} rejected value {value!r}") from exc
+
+    def _set_feature_if_available(self, name: str, value) -> None:
+        try:
+            self._set_feature(name, value)
+        except CameraError:
+            return
+
+    def _range(self, name: str, scale: float = 1.0) -> FeatureRange | None:
+        try:
+            feature = getattr(self._camera, name)
+        except Exception:
+            return None
+        try:
+            minimum = feature.GetMin()
+            maximum = feature.GetMax()
+        except Exception:
+            return None
+        try:
+            inc = feature.GetInc()
+        except Exception:
+            inc = None
+        return FeatureRange(float(minimum) * scale, float(maximum) * scale, None if inc is None else float(inc) * scale)

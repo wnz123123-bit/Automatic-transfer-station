@@ -21,6 +21,9 @@ Z_SPEED_OPTIONS_UM_S = (0.1, 1.0, 10.0, 100.0, 1000.0, 5000.0)
 # MicroscopeZ buttons; the gamepad LT/RT triggers use a SEPARATE fixed speed —
 # GAMEPAD_MICROSCOPE_Z_SPEED_UM_S below — decoupled from this dropdown.)
 MICROSCOPE_Z_SPEED_OPTIONS_UM_S = (1.0, 10.0, 100.0, 1000.0, 2000.0, 3000.0, 4000.0)
+# MicroscopeZ single-step notches for the GUI and gamepad LB/RB step keys. Kept
+# deliberately conservative near the optics: no 1000 um notch.
+MICROSCOPE_Z_STEP_OPTIONS_UM = (1.0, 5.0, 10.0, 50.0, 100.0, 500.0)
 # Fixed gamepad speed for the MicroscopeZ triggers (LT/RT). The operator wanted the
 # gamepad focus-Z control to ALWAYS top out at 4 mm/s (the stepper's reliable max),
 # independent of the GUI MicroscopeZ speed dropdown — so the trigger scales 0..4000
@@ -265,7 +268,7 @@ STEP_SNAP = {
     7: (1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0),
     8: (1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0),
     9: (0.05, 0.1, 0.5, 1.0, 5.0, 10.0),
-    3: (1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0),
+    3: MICROSCOPE_Z_STEP_OPTIONS_UM,
     4: (0.1, 1.0, 5.0, 10.0, 50.0, 100.0, 500.0),
 }
 

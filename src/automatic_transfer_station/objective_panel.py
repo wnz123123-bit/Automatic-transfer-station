@@ -101,6 +101,8 @@ class ObjectiveMoveThread(QThread):
 
 
 class ObjectivePanel(QGroupBox):
+    objective_changed = Signal(str, int)
+
     def __init__(
         self,
         nosepiece_controller: NosepieceController,
@@ -499,6 +501,7 @@ class ObjectivePanel(QGroupBox):
         message = self._tr("当前物镜: {label} (孔位 {position})").format(label=label, position=position)
         self.controls["objectiveStatusLabel"].setText(message)
         self._emit_status(message)
+        self.objective_changed.emit(label, position)
 
     def _fail_objective_move(self, error: str) -> None:
         if self._slots_disabled():
@@ -553,6 +556,7 @@ class ObjectivePanel(QGroupBox):
         self.controls["objectiveStatusLabel"].setText(
             self._tr("当前物镜: {label} (孔位 {position})").format(label=label, position=position)
         )
+        self.objective_changed.emit(label, position)
 
     def _fail_read_position(self, error: str) -> None:
         if self._slots_disabled():

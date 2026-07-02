@@ -45,6 +45,9 @@ class CameraWindow(QMainWindow):
         self.close()
         return idle
 
+    def set_objective(self, label: str, position: int | None = None) -> None:
+        self.camera_panel.set_objective(label, position)
+
     def closeEvent(self, event) -> None:
         if not self._prepared_for_close:
             self.prepare_for_close(timeout_ms=2000)

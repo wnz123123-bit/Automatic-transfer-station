@@ -69,14 +69,21 @@ class GamepadControllerTests(unittest.TestCase):
         self.assertTrue([i for i in out if isinstance(i, StartContinuous) and i.axis == 3 and i.frac > 0])
         self.assertIn(StopContinuous(3), c.poll(snap(rt=0.0)))
 
-    def test_bumper_tap_steps_and_hold_continuous_axis4(self):
-        from automatic_transfer_station.gamepad_controller import GamepadController, Jog, StartContinuous
+    def test_bumper_tap_steps_microscope_z_once_and_never_continuous(self):
+        from automatic_transfer_station.gamepad_controller import (
+            GamepadController, Jog, StartContinuous, UpdateContinuous,
+        )
         from automatic_transfer_station.gamepad_xinput import BUTTON
         clk = Clock(); c = GamepadController(now=clk); c.enabled = True
-        out = c.poll(snap(buttons=BUTTON["RB"]))
-        self.assertIn(Jog(4, +1), out)
+        out = c.poll(snap(buttons=BUTTON["LB"]))
+        self.assertIn(Jog(3, -1), out)
+        self.assertNotIn(Jog(4, -1), out)
         clk.advance(0.35)
-        self.assertTrue([i for i in c.poll(snap(buttons=BUTTON["RB"])) if isinstance(i, StartContinuous) and i.axis == 4])
+        held = c.poll(snap(buttons=BUTTON["LB"]))
+        self.assertFalse([i for i in held if isinstance(i, Jog)])
+        self.assertFalse([i for i in held if isinstance(i, (StartContinuous, UpdateContinuous))])
+        c.poll(snap(buttons=0))
+        self.assertIn(Jog(3, +1), c.poll(snap(buttons=BUTTON["RB"])))
 
     # ---- 2026-06-22 remap: D-pad up/down = step-jog, D-pad left/right = step size,
     #      face buttons Y/A/X/B = 2-D directional axis selection ----
@@ -286,7 +293,8 @@ class GamepadControllerTests(unittest.TestCase):
     def test_held_button_across_rearm_does_not_phantom_jog(self):
         from automatic_transfer_station.gamepad_controller import GamepadController, Jog, ToggleEnable
         c = GamepadController(now=Clock()); c.enabled = True
-        c.poll(snap(buttons=BUTTON["RB"]))                              # genuine press -> Jog(4,+1)
+        first = c.poll(snap(buttons=BUTTON["RB"]))                      # genuine press -> Jog(3,+1)
+        self.assertIn(Jog(3, +1), first)
         c.poll(snap(buttons=BUTTON["RB"] | BUTTON["START"]))           # START edge -> disable
         c.poll(snap(buttons=BUTTON["RB"]))                             # disabled; RB still held
         out = c.poll(snap(buttons=BUTTON["RB"] | BUTTON["START"]))    # re-arm via START, RB still held

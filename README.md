@@ -59,7 +59,7 @@ With RD105 temperature controller:
 python .\run_transfer_station.py --temperature-port COM5
 ```
 
-### Basler camera preview
+### Basler camera workstation
 
 The microscope camera opens as a second top-level window when launching the app
 normally. It targets the Basler `puA2500-14ucMIC` USB camera with serial
@@ -77,8 +77,25 @@ python -c "from pypylon import pylon; print([(d.GetModelName(), d.GetSerialNumbe
 ```
 
 Close pylon Viewer before using the camera window; the viewer can hold the camera
-open and prevent this application from grabbing frames. Snapshots are written to
-`runtime\camera_snapshots\`.
+open and prevent this application from grabbing frames.
+
+The camera window uses a microscope-workbench layout: large live preview on the
+left and grouped camera controls on the right. It auto-connects to the default
+Basler camera when the window opens, so the acquisition group only exposes
+Preview and Capture actions. It also supports save directory and filename
+templates, TIFF/PNG/JPG output, independent Live/Snap pixel-resolution choices,
+exposure/gain, Gamma, sharpness, horizontal+vertical software flip, and two-point
+scale calibration per objective through a popup dialog. The default snapshot
+format is TIFF; the default filename template is `{date}_{time}_{objective}_{index}`.
+Saved images include the scale bar when the selected objective has been calibrated.
+
+Runtime camera files:
+
+```text
+runtime\camera_snapshots\
+runtime\camera_settings.json
+runtime\camera_scale_calibration.json
+```
 
 ### Gamepad control (Logitech F710)
 
@@ -90,7 +107,7 @@ python .\run_transfer_station.py --no-gamepad
 
 If the XInput DLL fails to load the program still starts normally (a message is printed to stderr and gamepad support is silently disabled).
 
-Quick button mapping (2026-06-22 remap): left stick = X3/Y3 continuous; right stick = X2/Y2 continuous; LT/RT = MicroscopeZ (step/hold); LB/RB = Z (step/hold); D-pad up/down = single-step jog of the selected axis (step only, no continuous); D-pad left/right = step-size down/up; face buttons Y/A/X/B = 2D directional axis selection (up/down/left/right by the GUI axis-card grid layout) among X3/Y3/X2/Y2/R/Z/X1/Y1 (MicroscopeZ stays on the triggers); START = enable/disable gamepad; BACK = stop all (bypasses queue). The selected axis shows on a stage-map banner (word-wrapped, clamped to the image) with its live step size and coordinate. Press ? in the gamepad panel to view a labelled Logitech F710 diagram of the full button mapping; the global Space key is an emergency stop shortcut.
+Quick button mapping (2026-07-01 remap): left stick = X3/Y3 continuous; right stick = X2/Y2 continuous; LT/RT = MicroscopeZ (step/hold, fixed 4 mm/s top speed); LB/RB = MicroscopeZ single-step down/up using the GUI MicroscopeZ step notch; D-pad up/down = single-step jog of the selected axis (step only, no continuous); D-pad left/right = step-size down/up; face buttons Y/A/X/B = 2D directional axis selection (up/down/left/right by the GUI axis-card grid layout) among X3/Y3/X2/Y2/R/Z/X1/Y1 (MicroscopeZ is not selectable); START = enable/disable gamepad; BACK = stop all (bypasses queue). The selected axis shows on a stage-map banner (word-wrapped, clamped to the image) with its live step size and coordinate. Press ? in the gamepad panel to view a labelled Logitech F710 diagram of the full button mapping; the global Space key is an emergency stop shortcut.
 
 The default real mode does not connect at startup. The program connects to the motion card only after clicking `打开运动控制`.
 
@@ -104,7 +121,7 @@ python .\run_transfer_station.py --smoke-exit
 Current baseline:
 
 ```text
-566 passed
+583 passed
 ```
 
 ## Runtime State
@@ -116,6 +133,8 @@ runtime\axis_positions.json
 runtime\axis_runtime_calibration.json
 runtime\microscope_z_positions.json
 runtime\camera_snapshots\
+runtime\camera_settings.json
+runtime\camera_scale_calibration.json
 ```
 
 These files are display/state recovery files. They do not write saved values back into the motion card.
