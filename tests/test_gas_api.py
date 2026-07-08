@@ -53,6 +53,8 @@ class FakeDll:
             "GA_ZeroPos",
             "GA_HomeSetPrm",
             "GA_HomeStart",
+            "GA_GetExtDiBit",
+            "GA_GetExtDiValue",
         ]
         for name in names:
             setattr(self, name, FakeFunction())
@@ -78,6 +80,14 @@ class GasApiTests(unittest.TestCase):
                 ctypes.POINTER(ctypes.c_ulong),
             ],
             dll.GA_GetSts.argtypes,
+        )
+        self.assertEqual(
+            [ctypes.c_short, ctypes.c_short, ctypes.POINTER(ctypes.c_ushort)],
+            dll.GA_GetExtDiBit.argtypes,
+        )
+        self.assertEqual(
+            [ctypes.c_short, ctypes.POINTER(ctypes.c_ulong), ctypes.c_short],
+            dll.GA_GetExtDiValue.argtypes,
         )
 
     def test_get_status_returns_status_word_from_sdk(self):
@@ -122,6 +132,38 @@ class GasApiTests(unittest.TestCase):
         api = GasApi(dll=dll)
 
         self.assertEqual(12.5, api.get_prf_pos(3))
+
+    def test_get_ext_di_bit_returns_single_input_bit(self):
+        from automatic_transfer_station.gas_api import GasApi
+
+        dll = FakeDll()
+
+        def fill_input(card_index, bit_index, value):
+            self.assertEqual(0, card_index)
+            self.assertEqual(8, bit_index)
+            value._obj.value = 1
+            return 0
+
+        dll.GA_GetExtDiBit.side_effect = fill_input
+        api = GasApi(dll=dll)
+
+        self.assertEqual(1, api.get_ext_di_bit(0, 8))
+
+    def test_get_ext_di_value_returns_card_input_word(self):
+        from automatic_transfer_station.gas_api import GasApi
+
+        dll = FakeDll()
+
+        def fill_input_word(card_index, value, count):
+            self.assertEqual(0, card_index)
+            self.assertEqual(1, count)
+            value._obj.value = 0x100
+            return 0
+
+        dll.GA_GetExtDiValue.side_effect = fill_input_word
+        api = GasApi(dll=dll)
+
+        self.assertEqual(0x100, api.get_ext_di_value(0))
 
     # ---- Package 7 Test 3 (api part): nonzero DLL return raises RuntimeError ----
 

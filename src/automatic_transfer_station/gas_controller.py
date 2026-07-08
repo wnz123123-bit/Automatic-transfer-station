@@ -42,16 +42,15 @@ _audit = logging.getLogger("ats.audit")
 AXIS_STATUS_RUNNING = 0x00000400
 AXIS_STATUS_ARRIVE = 0x00000800
 
-AXIS9_HOME_APPROACH_DEGREES = 350.0
-AXIS9_HOME_APPROACH_SPEED_DEG_S = 2.0
-AXIS9_HOME_SEARCH_DEGREES = 18.0
-AXIS9_HOME_RAPID_SPEED_DEG_S = 0.25
-AXIS9_HOME_LOCATE_SPEED_DEG_S = 0.08
-AXIS9_HOME_INDEX_SPEED_DEG_S = 0.04
-AXIS9_HOME_ACCELERATION = 0.06
-AXIS9_HOME_DELAY_BEFORE_ZERO_MS = 300
-AXIS9_HOME_APPROACH_MIN_TIMEOUT_S = 35.0
-AXIS9_HOME_APPROACH_TIMEOUT_MARGIN_S = 10.0
+AXIS9_ZERO_SWITCH_CARD_INDEX = 0
+AXIS9_ZERO_SWITCH_IO_INDEX = 8
+AXIS9_ZERO_SWITCH_ACTIVE_VALUE = 1
+AXIS9_HOME_SEARCH_MIN_DEGREES = -10.0
+AXIS9_HOME_SEARCH_MAX_DEGREES = 10.0
+AXIS9_HOME_PREPOSITION_SPEED_DEG_S = 2.0
+AXIS9_HOME_PREPOSITION_TIMEOUT_MARGIN_S = 10.0
+AXIS9_HOME_IO_SEARCH_SPEED_DEG_S = 0.25
+AXIS9_HOME_IO_SEARCH_TIMEOUT_MARGIN_S = 10.0
 
 
 def _api_locked(method):
@@ -414,53 +413,91 @@ class GasMotionController:
     @_api_locked
     def home_axis9(self) -> None:
         self._require_open()
-        axis = AXIS9_NUM
-        # The current GAS.dll is unstable when GA_HomeSetPrmSingle is called
-        # directly from ctypes; the struct entrypoint matches the original C# path.
-        #
-        # Real-hardware check on 2026-06-24 placed the optical slit HOME window in
-        # the 350..365 deg range. Approach the lower side first, then let the card's
-        # native HOME state machine search forward with a bounded travel distance.
         current_angle = self.get_axis9_angle()
-        self.move_axis9_to_angle(
-            AXIS9_HOME_APPROACH_DEGREES,
-            speed=self._axis9_home_velocity(AXIS9_HOME_APPROACH_SPEED_DEG_S),
+        self._assert_axis9_home_start_in_global_range(current_angle)
+        if self._axis9_zero_switch_active():
+            return
+        self._move_axis9_to_home_search_start(current_angle)
+        if self._axis9_zero_switch_active():
+            return
+        if self._scan_axis9_until_zero_switch(AXIS9_HOME_SEARCH_MAX_DEGREES, AXIS9_HOME_SEARCH_MIN_DEGREES):
+            return
+        raise MotionControllerError(
+            tr("R 轴回零未完成：在 -10..10 deg 范围内未检测到 card0 IO8 零位开关，当前位置未设为 0 deg")
         )
-        self._wait_axis_arrive(axis, self._axis9_home_approach_timeout(current_angle))
-        self._check(self.api.clear_status(axis, 1), "GA_ClrSts(9)")
-        self._check(
-            self.api.home_set_prm(
-                axis,
-                home_mode=1,
-                home_direction=1,
-                offset=0,
-                rapid_velocity=self._axis9_home_velocity(AXIS9_HOME_RAPID_SPEED_DEG_S),
-                locate_velocity=self._axis9_home_velocity(AXIS9_HOME_LOCATE_SPEED_DEG_S),
-                index_velocity=self._axis9_home_velocity(AXIS9_HOME_INDEX_SPEED_DEG_S),
-                acceleration=AXIS9_HOME_ACCELERATION,
-                delay_before_zero=AXIS9_HOME_DELAY_BEFORE_ZERO_MS,
-                home_max_distance=round(AXIS9_HOME_SEARCH_DEGREES / AXIS9_DEGREES_PER_PULSE),
-            ),
-            "GA_HomeSetPrm(9)",
-        )
-        self._check(self.api.home_start(axis), "GA_HomeStart(9)")
+
+    def _assert_axis9_home_start_in_global_range(self, current_angle: float) -> None:
+        if current_angle < AXIS9_MIN_DEGREES or current_angle > AXIS9_MAX_DEGREES:
+            raise MotionControllerError(
+                tr(
+                    "R 轴回零被拒绝：当前角度 {angle:.3f} deg 超出 R 轴安全范围 {min_angle:g}..{max_angle:g} deg"
+                ).format(
+                    angle=float(current_angle),
+                    min_angle=AXIS9_MIN_DEGREES,
+                    max_angle=AXIS9_MAX_DEGREES,
+                )
+            )
 
     def _axis9_home_velocity(self, degrees_per_second: float) -> float:
         return float(degrees_per_second) / AXIS9_DEGREES_PER_PULSE / 1000.0
 
-    def _axis9_home_approach_timeout(self, current_angle: float) -> float:
-        travel_s = abs(float(current_angle) - AXIS9_HOME_APPROACH_DEGREES) / AXIS9_HOME_APPROACH_SPEED_DEG_S
-        return max(AXIS9_HOME_APPROACH_MIN_TIMEOUT_S, travel_s + AXIS9_HOME_APPROACH_TIMEOUT_MARGIN_S)
+    def _axis9_zero_switch_active(self) -> bool:
+        value = self.api.get_ext_di_bit(AXIS9_ZERO_SWITCH_CARD_INDEX, AXIS9_ZERO_SWITCH_IO_INDEX)
+        return int(value) == AXIS9_ZERO_SWITCH_ACTIVE_VALUE
 
-    def _wait_axis_arrive(self, axis: int, timeout_s: float) -> None:
+    def _move_axis9_to_home_search_start(self, current_angle: float) -> None:
+        self.move_axis9_to_angle(
+            AXIS9_HOME_SEARCH_MIN_DEGREES,
+            speed=self._axis9_home_velocity(AXIS9_HOME_PREPOSITION_SPEED_DEG_S),
+        )
+        self._wait_axis_arrive(
+            AXIS9_NUM,
+            self._axis9_home_preposition_timeout(current_angle),
+            timeout_message=tr("R 轴回零未完成：无法移动到 -10 deg 搜索起点"),
+        )
+
+    def _axis9_home_preposition_timeout(self, current_angle: float) -> float:
+        travel_s = abs(float(current_angle) - AXIS9_HOME_SEARCH_MIN_DEGREES) / AXIS9_HOME_PREPOSITION_SPEED_DEG_S
+        return travel_s + AXIS9_HOME_PREPOSITION_TIMEOUT_MARGIN_S
+
+    def _scan_axis9_until_zero_switch(self, target_angle: float, start_angle: float) -> bool:
+        self.move_axis9_to_angle(
+            target_angle,
+            speed=self._axis9_home_velocity(AXIS9_HOME_IO_SEARCH_SPEED_DEG_S),
+        )
+        return self._wait_axis9_zero_switch_or_arrive(
+            self._axis9_home_io_search_timeout(start_angle, target_angle)
+        )
+
+    def _axis9_home_io_search_timeout(self, start_angle: float, target_angle: float) -> float:
+        travel_s = abs(float(target_angle) - float(start_angle)) / AXIS9_HOME_IO_SEARCH_SPEED_DEG_S
+        return travel_s + AXIS9_HOME_IO_SEARCH_TIMEOUT_MARGIN_S
+
+    def _wait_axis9_zero_switch_or_arrive(self, timeout_s: float) -> bool:
+        deadline = time.monotonic() + float(timeout_s)
+        while True:
+            if self._axis9_zero_switch_active():
+                self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
+                return True
+            status = self.api.get_status(AXIS9_NUM)
+            if (status & AXIS_STATUS_ARRIVE) and not (status & AXIS_STATUS_RUNNING):
+                return self._axis9_zero_switch_active()
+            if time.monotonic() >= deadline:
+                self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
+                raise MotionControllerError(
+                    tr("R 轴回零未完成：在 -10..10 deg 范围内未检测到 card0 IO8 零位开关")
+                )
+            time.sleep(0.02)
+
+    def _wait_axis_arrive(self, axis: int, timeout_s: float, timeout_message: str | None = None) -> int:
         deadline = time.monotonic() + float(timeout_s)
         while True:
             status = self.api.get_status(axis)
             if (status & AXIS_STATUS_ARRIVE) and not (status & AXIS_STATUS_RUNNING):
-                return
+                return int(status)
             if time.monotonic() >= deadline:
                 self._check(self.api.stop(axis_mask(axis), 0), f"GA_Stop({axis})")
-                raise MotionControllerError(f"axis {axis} did not arrive before timeout")
+                raise MotionControllerError(timeout_message or f"axis {axis} did not arrive before timeout")
             time.sleep(0.02)
 
     @_api_locked
@@ -471,7 +508,13 @@ class GasMotionController:
                 f"axis 9 angle must be between {AXIS9_MIN_DEGREES:g} and {AXIS9_MAX_DEGREES:g}"
             )
         axis = AXIS9_NUM
-        target_pulse = pulse_from_coordinate(axis, angle, self.axis_calibrations)
+        calibration = self.axis_calibrations.get(axis) or AXIS_CALIBRATIONS[axis]
+        if calibration.min_coordinate is not None and float(angle) == float(calibration.min_coordinate):
+            target_pulse = calibration.soft_limit_endpoint_pulse(float(angle))
+        elif calibration.max_coordinate is not None and float(angle) == float(calibration.max_coordinate):
+            target_pulse = calibration.soft_limit_endpoint_pulse(float(angle))
+        else:
+            target_pulse = pulse_from_coordinate(axis, angle, self.axis_calibrations)
         self._validate_target(axis, target_pulse)
         self._check(self.api.profile_trap(axis), "GA_PrfTrap(9)")
         self._check(self.api.axis_on(axis), "GA_AxisOn(9)")

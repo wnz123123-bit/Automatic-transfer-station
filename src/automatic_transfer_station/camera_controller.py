@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import threading
 from typing import Callable, Protocol
 
 from .paths import CAMERA_SNAPSHOT_DIR
@@ -9,6 +10,7 @@ from .paths import CAMERA_SNAPSHOT_DIR
 
 DEFAULT_CAMERA_SERIAL = "25141247"
 DEFAULT_CAMERA_MODEL = "puA2500-14ucMIC"
+DEFAULT_CAMERA_GRAB_TIMEOUT_MS = 5000
 
 
 class CameraError(RuntimeError):
@@ -39,6 +41,8 @@ class FeatureRange:
 
 @dataclass(frozen=True)
 class CameraCapabilities:
+    sensor_width: int | None = None
+    sensor_height: int | None = None
     width: FeatureRange | None = None
     height: FeatureRange | None = None
     binning: FeatureRange | None = None
@@ -60,7 +64,7 @@ class CameraHandle(Protocol):
     def close(self) -> None: ...
     def start_preview(self) -> None: ...
     def stop_preview(self) -> None: ...
-    def grab_rgb(self, timeout_ms: int = 1000) -> CameraFrame: ...
+    def grab_rgb(self, timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS) -> CameraFrame: ...
     def set_exposure(self, auto: bool, value_ms: float | None) -> None: ...
     def set_gain(self, auto: bool, value: float | None) -> None: ...
     def capabilities(self) -> CameraCapabilities: ...
@@ -94,6 +98,7 @@ class BaslerCameraController:
         self._handle: CameraHandle | None = None
         self._device: CameraDeviceInfo | None = None
         self._previewing = False
+        self._io_lock = threading.RLock()
 
     @property
     def is_open(self) -> bool:
@@ -111,31 +116,32 @@ class BaslerCameraController:
         return self.backend.list_devices()
 
     def open(self, serial: str | None = None) -> CameraDeviceInfo:
-        requested_serial = str(serial).strip() if serial else ""
-        devices = self.list_devices()
-        if not devices:
-            raise CameraError("No Basler camera found. Check USB connection and close pylon Viewer.")
+        with self._io_lock:
+            requested_serial = str(serial).strip() if serial else ""
+            devices = self.list_devices()
+            if not devices:
+                raise CameraError("No Basler camera found. Check USB connection and close pylon Viewer.")
 
-        selected = self._select_device(devices, requested_serial or self.preferred_serial)
-        if selected is None:
-            if requested_serial:
-                raise CameraError(f"Basler camera serial {requested_serial} not found")
-            selected = devices[0]
+            selected = self._select_device(devices, requested_serial or self.preferred_serial)
+            if selected is None:
+                if requested_serial:
+                    raise CameraError(f"Basler camera serial {requested_serial} not found")
+                selected = devices[0]
 
-        if self._handle is not None:
-            if self._device is not None and self._device.serial_number == selected.serial_number:
-                return self._device
-            self.close()
+            if self._handle is not None:
+                if self._device is not None and self._device.serial_number == selected.serial_number:
+                    return self._device
+                self.close()
 
-        handle = self.backend.open_device(selected.serial_number)
-        try:
-            handle.open()
-        except Exception as exc:  # noqa: BLE001 - normalize backend/pypylon exceptions
-            raise CameraError(f"Failed to open Basler camera {selected.serial_number}: {exc}") from exc
-        self._handle = handle
-        self._device = selected
-        self._previewing = False
-        return selected
+            handle = self.backend.open_device(selected.serial_number)
+            try:
+                handle.open()
+            except Exception as exc:  # noqa: BLE001 - normalize backend/pypylon exceptions
+                raise CameraError(f"Failed to open Basler camera {selected.serial_number}: {exc}") from exc
+            self._handle = handle
+            self._device = selected
+            self._previewing = False
+            return selected
 
     @staticmethod
     def _select_device(devices: list[CameraDeviceInfo], serial: str) -> CameraDeviceInfo | None:
@@ -145,110 +151,132 @@ class BaslerCameraController:
         return None
 
     def close(self) -> None:
-        handle = self._handle
-        if handle is None:
-            return
-        try:
-            if self._previewing:
-                handle.stop_preview()
-        finally:
-            self._previewing = False
+        with self._io_lock:
+            handle = self._handle
+            if handle is None:
+                return
             try:
-                handle.close()
+                if self._previewing:
+                    handle.stop_preview()
             finally:
-                self._handle = None
-                self._device = None
+                self._previewing = False
+                try:
+                    handle.close()
+                finally:
+                    self._handle = None
+                    self._device = None
 
     def start_preview(self) -> None:
-        handle = self._require_handle()
-        try:
-            handle.start_preview()
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to start camera preview: {exc}") from exc
-        self._previewing = True
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                handle.start_preview()
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to start camera preview: {exc}") from exc
+            self._previewing = True
 
     def stop_preview(self) -> None:
-        handle = self._handle
-        if handle is None or not self._previewing:
-            return
-        try:
-            handle.stop_preview()
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to stop camera preview: {exc}") from exc
-        finally:
-            self._previewing = False
+        with self._io_lock:
+            handle = self._handle
+            if handle is None or not self._previewing:
+                return
+            try:
+                handle.stop_preview()
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to stop camera preview: {exc}") from exc
+            finally:
+                self._previewing = False
 
     def set_exposure(self, auto: bool, value_ms: float | None = None) -> None:
-        handle = self._require_handle()
-        try:
-            handle.set_exposure(bool(auto), None if value_ms is None else float(value_ms))
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to set camera exposure: {exc}") from exc
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                handle.set_exposure(bool(auto), None if value_ms is None else float(value_ms))
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to set camera exposure: {exc}") from exc
 
     def set_gain(self, auto: bool, value: float | None = None) -> None:
-        handle = self._require_handle()
-        try:
-            handle.set_gain(bool(auto), None if value is None else float(value))
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to set camera gain: {exc}") from exc
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                handle.set_gain(bool(auto), None if value is None else float(value))
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to set camera gain: {exc}") from exc
 
     def capabilities(self) -> CameraCapabilities:
-        handle = self._require_handle()
-        try:
-            return handle.capabilities()
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to read camera capabilities: {exc}") from exc
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                return handle.capabilities()
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to read camera capabilities: {exc}") from exc
 
     def apply_acquisition_settings(self, settings: CameraAcquisitionSettings) -> None:
-        handle = self._require_handle()
-        try:
-            handle.apply_acquisition_settings(settings)
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to set camera resolution: {exc}") from exc
+        with self._io_lock:
+            try:
+                self._apply_with_preview_paused(lambda handle: handle.apply_acquisition_settings(settings))
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to set camera resolution: {exc}") from exc
 
     def set_image_adjustment(self, gamma: float | None = None, sharpness: float | None = None) -> None:
-        handle = self._require_handle()
-        try:
-            handle.set_image_adjustment(gamma=gamma, sharpness=sharpness)
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to set camera image adjustment: {exc}") from exc
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                handle.set_image_adjustment(gamma=gamma, sharpness=sharpness)
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to set camera image adjustment: {exc}") from exc
 
-    def grab_one(self, timeout_ms: int = 1000) -> CameraFrame:
-        handle = self._require_handle()
-        try:
-            frame = handle.grab_rgb(int(timeout_ms))
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to grab camera frame: {exc}") from exc
-        if frame is None:
-            raise CameraError("Camera returned no frame")
-        return frame
+    def grab_one(self, timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS) -> CameraFrame:
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                frame = handle.grab_rgb(int(timeout_ms))
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to grab camera frame: {exc}") from exc
+            if frame is None:
+                raise CameraError("Camera returned no frame")
+            return frame
 
     def grab_one_with_settings(
         self,
         snap_settings: CameraAcquisitionSettings,
         restore_settings: CameraAcquisitionSettings | None = None,
-        timeout_ms: int = 1000,
+        timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS,
     ) -> CameraFrame:
-        handle = self._require_handle()
-        try:
-            handle.apply_acquisition_settings(snap_settings)
-            frame = handle.grab_rgb(int(timeout_ms))
-        except Exception as exc:  # noqa: BLE001
-            raise CameraError(f"Failed to grab camera frame: {exc}") from exc
-        finally:
-            if restore_settings is not None:
-                try:
-                    handle.apply_acquisition_settings(restore_settings)
-                except Exception:
-                    pass
-        if frame is None:
-            raise CameraError("Camera returned no frame")
-        return frame
+        with self._io_lock:
+            handle = self._require_handle()
+            try:
+                handle.apply_acquisition_settings(snap_settings)
+                frame = handle.grab_rgb(int(timeout_ms))
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Failed to grab camera frame: {exc}") from exc
+            finally:
+                if restore_settings is not None:
+                    try:
+                        handle.apply_acquisition_settings(restore_settings)
+                    except Exception:
+                        pass
+            if frame is None:
+                raise CameraError("Camera returned no frame")
+            return frame
 
     def _require_handle(self) -> CameraHandle:
         if self._handle is None:
             raise CameraError("Basler camera is not connected")
         return self._handle
+
+    def _apply_with_preview_paused(self, action: Callable[[CameraHandle], object]) -> object:
+        handle = self._require_handle()
+        was_previewing = self._previewing
+        if was_previewing:
+            handle.stop_preview()
+            self._previewing = False
+        try:
+            return action(handle)
+        finally:
+            if was_previewing and self._handle is handle:
+                handle.start_preview()
+                self._previewing = True
 
 
 class PypylonBackend:
@@ -316,6 +344,7 @@ class PypylonCameraHandle:
         if not self._camera.IsOpen():
             self._camera.Open()
         if not self._camera.IsGrabbing():
+            self._prepare_free_run_acquisition()
             self._camera.StartGrabbing(self._pylon.GrabStrategy_LatestImageOnly)
             self._single_grab_started = False
 
@@ -324,15 +353,17 @@ class PypylonCameraHandle:
             self._camera.StopGrabbing()
         self._single_grab_started = False
 
-    def grab_rgb(self, timeout_ms: int = 1000) -> CameraFrame:
+    def grab_rgb(self, timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS) -> CameraFrame:
         if not self._camera.IsOpen():
             self._camera.Open()
         if not self._camera.IsGrabbing():
+            self._prepare_free_run_acquisition()
             self._camera.StartGrabbingMax(1)
             self._single_grab_started = True
 
-        result = self._camera.RetrieveResult(int(timeout_ms), self._pylon.TimeoutHandling_ThrowException)
+        result = None
         try:
+            result = self._camera.RetrieveResult(int(timeout_ms), self._pylon.TimeoutHandling_ThrowException)
             if not result.GrabSucceeded():
                 raise CameraError(f"{result.ErrorCode}: {result.ErrorDescription}")
             image = self._converter.Convert(result)
@@ -349,10 +380,14 @@ class PypylonCameraHandle:
                 },
             )
         finally:
-            result.Release()
-            if self._single_grab_started and self._camera.IsGrabbing():
-                self._camera.StopGrabbing()
-                self._single_grab_started = False
+            if result is not None:
+                result.Release()
+            if self._single_grab_started:
+                try:
+                    if self._camera.IsGrabbing():
+                        self._camera.StopGrabbing()
+                finally:
+                    self._single_grab_started = False
 
     def set_exposure(self, auto: bool, value_ms: float | None) -> None:
         self._set_feature("ExposureAuto", "Continuous" if auto else "Off")
@@ -366,6 +401,8 @@ class PypylonCameraHandle:
 
     def capabilities(self) -> CameraCapabilities:
         return CameraCapabilities(
+            sensor_width=self._int_value("SensorWidth"),
+            sensor_height=self._int_value("SensorHeight"),
             width=self._range("Width"),
             height=self._range("Height"),
             binning=self._range("BinningHorizontal"),
@@ -388,13 +425,22 @@ class PypylonCameraHandle:
         if sharpness is not None:
             self._set_feature_if_available("SharpnessEnhancement", float(sharpness))
 
+    def _prepare_free_run_acquisition(self) -> None:
+        self._set_feature_if_present("AcquisitionMode", "Continuous")
+        for selector in self._feature_symbolics("TriggerSelector", fallback=("FrameStart",)):
+            self._set_feature_if_present("TriggerSelector", selector)
+            self._set_feature_if_present("TriggerMode", "Off")
+
     def _set_feature(self, name: str, value) -> None:
         try:
             feature = getattr(self._camera, name)
         except AttributeError as exc:
             raise CameraError(f"Camera feature {name} is unavailable") from exc
         if hasattr(feature, "SetValue"):
-            feature.SetValue(value)
+            try:
+                feature.SetValue(value)
+            except Exception as exc:  # noqa: BLE001
+                raise CameraError(f"Camera feature {name} rejected value {value!r}") from exc
             return
         try:
             feature.Value = value
@@ -406,6 +452,35 @@ class PypylonCameraHandle:
             self._set_feature(name, value)
         except CameraError:
             return
+
+    def _set_feature_if_present(self, name: str, value) -> bool:
+        try:
+            getattr(self._camera, name)
+        except Exception:
+            return False
+        self._set_feature(name, value)
+        return True
+
+    def _feature_symbolics(self, name: str, fallback: tuple[str, ...] = ()) -> tuple[str, ...]:
+        try:
+            feature = getattr(self._camera, name)
+        except Exception:
+            return tuple(fallback)
+        for attr in ("GetSymbolics",):
+            getter = getattr(feature, attr, None)
+            if getter is None:
+                continue
+            try:
+                values = getter()
+            except Exception:
+                continue
+            if values:
+                return tuple(str(value) for value in values)
+        try:
+            values = feature.Symbolics
+        except Exception:
+            return tuple(fallback)
+        return tuple(str(value) for value in values) if values else tuple(fallback)
 
     def _range(self, name: str, scale: float = 1.0) -> FeatureRange | None:
         try:
@@ -422,3 +497,20 @@ class PypylonCameraHandle:
         except Exception:
             inc = None
         return FeatureRange(float(minimum) * scale, float(maximum) * scale, None if inc is None else float(inc) * scale)
+
+    def _int_value(self, name: str) -> int | None:
+        try:
+            feature = getattr(self._camera, name)
+        except Exception:
+            return None
+        try:
+            value = feature.GetValue()
+        except Exception:
+            try:
+                value = feature.Value
+            except Exception:
+                return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None

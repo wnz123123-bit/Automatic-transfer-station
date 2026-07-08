@@ -66,7 +66,7 @@ E:\Automatic transfer station\src\automatic_transfer_station
 
 - X1/Y1 使用 `12500 pulse/mm`。
 - 其余平移轴使用 `50000 pulse/mm`。
-- R 使用 `0.00024 deg/pulse`，允许范围 `-5..365 deg`。
+- R 使用 `0.00024 deg/pulse`，允许范围 `-10..365 deg`。
 - X2/X3 有机械干涉关系，程序使用 pulse 空间边界保护。
 - Y1 正向/前向限位已于 2026-06-24 修复复测：`card0 IO3` 在约 `52.000 mm` 持续触发，退回约 `51.7805 mm` 释放；程序接入 `positive_io=3`，负向仍为 `IO2`。
 - Axis 3 没有绝对坐标和硬限位，作为特殊轴处理。
@@ -365,4 +365,10 @@ runtime\axis_runtime_calibration.json
 
 用户现场确认 R 轴 0 位光电狭缝感应窗口在 `350..365 deg`，旧的“约 `270 deg`”假设作废。实测从 `350.000 deg` 正向低速原生 HOME 搜索到 `368.502 deg`，`GA_GetSts(9)` 始终未出现 `HOME_SWITCH (0x4000)` / `HOME_SUCCESS (0x2000)`；随后用 `GA_SetCaptureMode(9, CAPTURE_HOME)` 并分别测试捕获极性 `0/1`，从 `350.000 deg` 扫到 `365.000 deg` 也没有捕获位置。当前结论：软件搜索窗口已明确，但 HOME9 信号在当前硬件状态下没有被控制卡 HOME/捕获通道看到，需要复查传感器输出、HOME9 接线、通道映射或有效电平。
 
-软件侧同步修正 `GasMotionController.home_axis9()`：回零前先移动到 `350.0 deg` 并等待到位（等待时间按当前位置到 `350 deg` 的距离动态计算，最小 `35 s`），然后清状态，再以 `home_direction=1`、`home_max_distance=75000 pulse`（约 `18 deg`）调用结构体版 `GA_HomeSetPrm` + `GA_HomeStart(9)`。这样避免旧逻辑从任意当前位置无上限回零，也让搜索范围与当前确认的光电窗口一致。新增测试钉住预定位目标、动态等待时间、受限 HOME 参数和后续角度移动兼容性。
+软件侧同步修正 `GasMotionController.home_axis9()`：回零前先检查当前 R 坐标必须在软件允许范围 `-5..365 deg` 内，然后移动到 `350.0 deg` 并等待到位（等待时间按当前位置到 `350 deg` 的距离动态计算，最小 `35 s`）。到位后清状态，再以 `home_direction=1`、有效 `home_max_distance=62500 pulse`（约 `15 deg`，从 `350 deg` 裁到软件上限 `365 deg`）调用结构体版 `GA_HomeSetPrm` + `GA_HomeStart(9)`，并等待板卡 HOME 过程完成；HOME 阶段必须读到 `HOME_SUCCESS (0x2000)` 才算成功，否则提示“未找到零点/HOME 信号”，且不把当前位置设为 `0 deg`。这样避免旧逻辑从任意当前位置无上限回零，也保证 GUI R 回零只在允许角度范围内搜索。GUI 回零成功后读取当前 R 脉冲并写入运行时标定，将该 HOME 位置持久化为 `0.000 deg`。新增测试钉住预定位目标、动态等待时间、受限 HOME 参数、软范围外拒绝、HOME 完成等待、HOME_SUCCESS 缺失失败提示和 GUI 回零归零同步。
+
+## 18. 2026-07-05 R 轴零位改为 card0 IO8
+
+用户指出当前新零位开关已确认进入普通 GPI/外部 IO 的 `card0 IO8`，不是控制卡轴 9 的 HOME 输入，因此 R 回零不再使用 `GA_HomeSetPrm` / `GA_HomeStart(9)` / `HOME_SUCCESS` 作为当前逻辑。程序改为软件扫描：R 回零可从全局安全软件范围 `-10..365 deg` 内任意当前位置发起，`-10..10 deg` 是 IO8 搜索窗口而不是启动限制。控制器先检查 `GA_GetExtDiBit(0, 8)`；若已触发则直接成功；若未触发，先预定位到 `-10 deg`，再从 `-10 deg` 扫到 `+10 deg`，过程中轮询 `card0 IO8`，一旦触发即 `GA_Stop(9)`，随后 GUI 把当前位置写成运行时标定 `0.000 deg`。若未触发，提示“在 -10..10 deg 范围内未检测到 card0 IO8 零位开关”，且不写零点。
+
+同步调整：`GasApi` 增加 `GA_GetExtDiBit` / `GA_GetExtDiValue` 封装；R 轴软件下限从 `-5 deg` 改为 `-10 deg`，以免回零扫描端点被软限位或安全扫描阻止。修改前只读读取当前 R：`GA_GetPrfPos(9)=0.000 pulse`，`GA_GetSts(9)=0x00000A00`，按当前运行时标定为 `0.000000 deg`。

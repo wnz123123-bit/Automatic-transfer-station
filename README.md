@@ -19,6 +19,7 @@ E:\Automatic transfer station
 │   ├── temperature_panel.py     # RD105 GUI panel
 │   ├── objective_panel.py       # LV-NCNT2 objective panel
 │   ├── camera_controller.py     # Basler pypylon camera controller
+│   ├── camera_measurement.py    # Camera measurement geometry and JSON sidecars
 │   ├── camera_panel.py          # Basler camera preview panel
 │   ├── camera_window.py         # Top-level Basler camera window
 │   ├── gamepad_xinput.py        # XInput ctypes read layer (GamepadReader/GamepadSnapshot)
@@ -84,10 +85,27 @@ left and grouped camera controls on the right. It auto-connects to the default
 Basler camera when the window opens, so the acquisition group only exposes
 Preview and Capture actions. It also supports save directory and filename
 templates, TIFF/PNG/JPG output, independent Live/Snap pixel-resolution choices,
-exposure/gain, Gamma, sharpness, horizontal+vertical software flip, and two-point
-scale calibration per objective through a popup dialog. The default snapshot
-format is TIFF; the default filename template is `{date}_{time}_{objective}_{index}`.
-Saved images include the scale bar when the selected objective has been calibrated.
+preview zoom readout with mouse-wheel zoom, exposure/gain, Gamma, sharpness,
+horizontal+vertical software flip, and two-point scale calibration per objective
+through a popup dialog. Camera preview annotations are rendered in red. The
+measurement group provides a button-controlled center crosshair, two-point line
+distance with a live first-point-to-cursor preview line, closed-polygon
+area/perimeter with cursor preview while adding points, undo, clear,
+delete-selected, and a measurement result table. Uncalibrated objectives can
+still be measured in px / px^2; calibrated objectives use the current
+`um_per_pixel` scale and display um/mm or um^2/mm^2 as appropriate. Live preview
+shows the current FPS, caps camera grabs at 60 FPS, limits GUI frame
+delivery/rendering to 30 FPS, coalesces queued frames so only the latest frame is
+rendered, and uses Qt image transforms for preview flips to keep the
+motion-control UI responsive while the camera is running. Live exposure, gain,
+Gamma, and sharpness writes are applied without restarting preview;
+acquisition-size changes still briefly pause preview while the camera is
+reconfigured. Exposure defaults to manual 10 ms so a dark field cannot make
+Basler auto exposure stretch preview grabs into second-long frames. The default
+snapshot format is TIFF; the default filename template is `{date}_{time}_{objective}_{index}`.
+Saved images include the red scale bar when the selected objective has been
+calibrated, and the default annotated snapshot path also burns in measurement
+objects/center crosshair plus writes a same-stem `.measurements.json` sidecar.
 
 Runtime camera files:
 
@@ -95,6 +113,7 @@ Runtime camera files:
 runtime\camera_snapshots\
 runtime\camera_settings.json
 runtime\camera_scale_calibration.json
+runtime\camera_snapshots\*.measurements.json
 ```
 
 ### Gamepad control (Logitech F710)
@@ -121,7 +140,7 @@ python .\run_transfer_station.py --smoke-exit
 Current baseline:
 
 ```text
-583 passed
+625 passed, 6 warnings, 2 subtests passed
 ```
 
 ## Runtime State
@@ -135,6 +154,7 @@ runtime\microscope_z_positions.json
 runtime\camera_snapshots\
 runtime\camera_settings.json
 runtime\camera_scale_calibration.json
+runtime\camera_snapshots\*.measurements.json
 ```
 
 These files are display/state recovery files. They do not write saved values back into the motion card.

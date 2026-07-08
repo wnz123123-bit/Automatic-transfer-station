@@ -2775,8 +2775,23 @@ class MainWindow(QMainWindow):
             return
         self._run_or_queue_motion_command(
             self.controller.home_axis9,
-            success_message=tr("轴9开始物理回零"),
+            on_success=self._record_axis9_home_zero,
         )
+
+    def _record_axis9_home_zero(self, _result: object = None) -> None:
+        current_pulse = float(self.controller.get_axis_position(AXIS9_NUM))
+        self.runtime_calibration_store.calibrate_axis_at_pulse(AXIS9_NUM, current_pulse, 0.0)
+        self._refresh_axis_calibration_mapping()
+        self.position_store.update_axis(
+            AXIS9_NUM,
+            current_pulse,
+            source="axis9_home",
+            angle_degrees=0.0,
+        )
+        self.controls["axisPositionR"].setText("0.000")
+        message = tr("R 轴物理回零完成：当前位置已设为 0.000 deg")
+        self._set_motion_status(message, "reset")
+        self.statusBar().showMessage(message)
 
     def _load_cached_position_labels(self) -> None:
         cached_positions: dict[int, float] = {}

@@ -16,6 +16,7 @@ class FakeApi:
         self.calls = []
         self.positions = {}
         self.statuses = {}
+        self.ext_di_bits = {}
         self.open_result = 0
         self.fail_on_call = None
 
@@ -105,6 +106,10 @@ class FakeApi:
     def get_prf_pos(self, axis):
         self.calls.append(("get_prf_pos", axis))
         return self.positions.get(axis, 0.0)
+
+    def get_ext_di_bit(self, card_index, bit_index):
+        self.calls.append(("get_ext_di_bit", card_index, bit_index))
+        return self.ext_di_bits.get((card_index, bit_index), 0)
 
     def zero_position(self, axis, count=1):
         self.calls.append(("zero_position", axis, count))
@@ -554,7 +559,109 @@ class GasMotionControllerTests(unittest.TestCase):
         self.assertIn(("set_position", 3, 456), api.calls)
         self.assertIn(("update", 0b100), api.calls)
 
-    def test_axis9_home_prepositions_to_known_sensor_window_before_bounded_home(self):
+    def test_axis9_home_uses_card0_io8_zero_switch_when_already_active(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        api = FakeApi()
+        api.ext_di_bits[(0, 8)] = 1
+        controller = GasMotionController(api=api)
+        controller.is_open = True
+
+        controller.home_axis9()
+
+        self.assertIn(("get_ext_di_bit", 0, 8), api.calls)
+        self.assertNotIn(("home_start", 9), api.calls)
+        self.assertFalse(any(call[0] == "home_set_prm" for call in api.calls))
+        self.assertNotIn(("set_position", 9, -41666), api.calls)
+        self.assertNotIn(("set_position", 9, 41667), api.calls)
+
+    def test_axis9_home_refuses_to_start_from_outside_global_soft_range(self):
+        from automatic_transfer_station.controller_base import AXIS9_DEGREES_PER_PULSE, MotionControllerError
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        api = FakeApi()
+        api.ext_di_bits[(0, 8)] = 1
+        api.positions[9] = round(366.0 / AXIS9_DEGREES_PER_PULSE)
+        controller = GasMotionController(api=api)
+        controller.is_open = True
+
+        with self.assertRaises(MotionControllerError) as ctx:
+            controller.home_axis9()
+
+        self.assertIn("-10", str(ctx.exception))
+        self.assertIn("365", str(ctx.exception))
+        self.assertNotIn(("set_position", 9, -41666), api.calls)
+        self.assertNotIn(("set_position", 9, 41667), api.calls)
+        self.assertFalse(any(call[0] == "home_set_prm" for call in api.calls))
+        self.assertNotIn(("home_start", 9), api.calls)
+
+    def test_axis9_home_can_start_outside_io8_search_window(self):
+        from automatic_transfer_station.controller_base import AXIS9_DEGREES_PER_PULSE
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        class Io8ActiveAfterPositiveScanFakeApi(FakeApi):
+            def get_ext_di_bit(self, card_index, bit_index):
+                self.calls.append(("get_ext_di_bit", card_index, bit_index))
+                saw_search_start = ("set_position", 9, -41666) in self.calls
+                return 1 if saw_search_start and self.positions.get(9, 0.0) > 0 else 0
+
+        for start_angle in (20.0, 350.0):
+            with self.subTest(start_angle=start_angle):
+                api = Io8ActiveAfterPositiveScanFakeApi()
+                api.statuses[9] = 0x800
+                api.positions[9] = round(start_angle / AXIS9_DEGREES_PER_PULSE)
+                controller = GasMotionController(api=api)
+                controller.is_open = True
+
+                controller.home_axis9()
+
+                self.assertIn(("get_ext_di_bit", 0, 8), api.calls)
+                self.assertIn(("set_position", 9, -41666), api.calls)
+                self.assertIn(("set_position", 9, 41667), api.calls)
+                self.assertNotIn(("home_start", 9), api.calls)
+
+    def test_axis9_home_accepts_displayed_ten_degree_boundary(self):
+        from automatic_transfer_station.controller_base import AXIS9_DEGREES_PER_PULSE
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        api = FakeApi()
+        api.positions[9] = round(10.0 / AXIS9_DEGREES_PER_PULSE)
+        api.ext_di_bits[(0, 8)] = 1
+        controller = GasMotionController(api=api)
+        controller.is_open = True
+
+        controller.home_axis9()
+
+        self.assertIn(("get_ext_di_bit", 0, 8), api.calls)
+        self.assertNotIn(("set_position", 9, -41666), api.calls)
+
+    def test_axis9_home_scans_negative_then_positive_until_card0_io8_active(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+
+        class Io8ActiveAfterPositiveScanFakeApi(FakeApi):
+            def get_ext_di_bit(self, card_index, bit_index):
+                self.calls.append(("get_ext_di_bit", card_index, bit_index))
+                saw_search_start = ("set_position", 9, -41666) in self.calls
+                return 1 if saw_search_start and self.positions.get(9, 0.0) > 0 else 0
+
+        api = Io8ActiveAfterPositiveScanFakeApi()
+        api.statuses[9] = 0x800
+        controller = GasMotionController(api=api)
+        controller.is_open = True
+
+        controller.home_axis9()
+
+        self.assertIn(("set_position", 9, -41666), api.calls)
+        self.assertIn(("set_position", 9, 41667), api.calls)
+        self.assertLess(
+            api.calls.index(("set_position", 9, -41666)),
+            api.calls.index(("set_position", 9, 41667)),
+        )
+        self.assertIn(("stop", 0b100000000, 0), api.calls)
+        self.assertNotIn(("home_start", 9), api.calls)
+
+    def test_axis9_home_reports_no_zero_when_card0_io8_missing_in_search_window(self):
+        from automatic_transfer_station.controller_base import MotionControllerError
         from automatic_transfer_station.gas_controller import GasMotionController
 
         api = FakeApi()
@@ -562,46 +669,20 @@ class GasMotionControllerTests(unittest.TestCase):
         controller = GasMotionController(api=api)
         controller.is_open = True
 
-        controller.home_axis9()
+        with self.assertRaises(MotionControllerError) as ctx:
+            controller.home_axis9()
 
-        home_call = next(call for call in api.calls if call[0] == "home_set_prm")
-        approach_call = ("set_position", 9, 1458333)
-        self.assertIn(approach_call, api.calls)
-        self.assertLess(api.calls.index(approach_call), api.calls.index(home_call))
-        self.assertEqual(("home_set_prm", 9, 1, 1), home_call[:4])
-        self.assertAlmostEqual(1.0416666666666667, home_call[5])
-        self.assertAlmostEqual(0.33333333333333337, home_call[6])
-        self.assertAlmostEqual(0.16666666666666669, home_call[7])
-        self.assertEqual(300, home_call[9])
-        self.assertEqual(75000, home_call[10])
-        self.assertIn(("home_start", 9), api.calls)
+        self.assertIn("card0 IO8", str(ctx.exception))
+        self.assertIn("-10..10", str(ctx.exception))
+        self.assertIn(("set_position", 9, -41666), api.calls)
+        self.assertIn(("set_position", 9, 41667), api.calls)
+        self.assertNotIn(("home_start", 9), api.calls)
 
-    def test_axis9_home_approach_timeout_scales_with_distance_to_sensor_window(self):
-        from automatic_transfer_station.gas_controller import GasMotionController
-
-        class CapturingHomeController(GasMotionController):
-            def __init__(self, api):
-                super().__init__(api=api)
-                self.wait_timeout = None
-
-            def _wait_axis_arrive(self, axis, timeout_s):
-                self.wait_timeout = timeout_s
-
-        api = FakeApi()
-        api.positions[9] = 0.0
-        controller = CapturingHomeController(api=api)
-        controller.is_open = True
-
-        controller.home_axis9()
-
-        self.assertIsNotNone(controller.wait_timeout)
-        self.assertAlmostEqual(185.0, controller.wait_timeout)
-
-    def test_axis9_home_and_angle_move_match_current_behavior(self):
+    def test_axis9_io8_home_and_angle_move_match_current_behavior(self):
         from automatic_transfer_station.gas_controller import GasMotionController
 
         api = FakeApi()
-        api.statuses[9] = 0x800
+        api.ext_di_bits[(0, 8)] = 1
         controller = GasMotionController(api=api)
         controller.is_open = True
 
@@ -612,7 +693,7 @@ class GasMotionControllerTests(unittest.TestCase):
         self.assertIn(("set_position", 9, 187500), api.calls)
         self.assertIn(("update", 0b100000000), api.calls)
 
-    def test_axis9_angle_range_allows_calibrated_overtravel(self):
+    def test_axis9_angle_range_allows_home_search_overtravel(self):
         from automatic_transfer_station.controller_base import MotionControllerError
         from automatic_transfer_station.gas_controller import GasMotionController
 
@@ -620,14 +701,14 @@ class GasMotionControllerTests(unittest.TestCase):
         controller = GasMotionController(api=api)
         controller.is_open = True
 
-        controller.move_axis9_to_angle(-5.0)
+        controller.move_axis9_to_angle(-10.0)
         controller.move_axis9_to_angle(365.0)
 
-        self.assertIn(("set_position", 9, -20833), api.calls)
+        self.assertIn(("set_position", 9, -41666), api.calls)
         self.assertIn(("set_position", 9, 1520833), api.calls)
 
         with self.assertRaises(MotionControllerError):
-            controller.move_axis9_to_angle(-5.1)
+            controller.move_axis9_to_angle(-10.1)
         with self.assertRaises(MotionControllerError):
             controller.move_axis9_to_angle(365.1)
 

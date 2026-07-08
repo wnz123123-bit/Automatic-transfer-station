@@ -1424,7 +1424,7 @@ class MainWindowTests(unittest.TestCase):
         get_app()
         window = MainWindow(controller=RecordingController(), motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
                             position_store_path=self.position_store_path)
-        self.assertEqual("0.0.4", __version__)
+        self.assertEqual("0.0.5", __version__)
         self.assertIn("versionLabel", window.controls)
         self.assertEqual(f"v{__version__}", window.controls["versionLabel"].text())
         # It is a permanent (right-aligned / bottom-right) status-bar widget.
@@ -2342,6 +2342,44 @@ class Package6SafetyAffordanceTests(unittest.TestCase):
         window.controls["btnAxis9Home"].click()
 
         self.assertIn(("home_axis9",), controller.calls)
+
+    def test_home_axis9_success_records_current_pulse_as_zero_degrees(self):
+        import json
+
+        from automatic_transfer_station.axis_calibration import coordinate_from_pulse
+        from automatic_transfer_station.main_window import MainWindow
+
+        class HomeRecordingController(RecordingController):
+            def get_axis9_angle(self):
+                if self.axis_calibrations is not None:
+                    coordinate = coordinate_from_pulse(9, self.positions[9], self.axis_calibrations)
+                    if coordinate is not None:
+                        return float(coordinate)
+                return super().get_axis9_angle()
+
+        app = get_app()
+        controller = HomeRecordingController()
+        controller.is_open = True
+        controller.positions[9] = 1466937.0
+        window = MainWindow(
+            controller=controller,
+            motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+            runtime_calibration_path=self.runtime_calibration_path,
+        )
+        window._confirm = lambda title, text: True
+        controller.calls.clear()
+
+        window.controls["btnAxis9Home"].click()
+        app.processEvents()
+
+        self.assertIn(("home_axis9",), controller.calls)
+        calibration_data = json.loads(self.runtime_calibration_path.read_text(encoding="utf-8"))
+        axis9 = calibration_data["axes"]["9"]
+        self.assertEqual(1466937.0, axis9["zero_pulse"])
+        self.assertEqual(0.0, axis9["zero_coordinate"])
+        self.assertEqual("0.000", window.controls["axisPositionR"].text())
+        self.assertEqual(0.0, window.position_store.cached_axis9_angle())
 
     # ---- Fix 2: stop-all button size + shortcut ----
 

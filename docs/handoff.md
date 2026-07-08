@@ -70,12 +70,27 @@ workbench with a large left preview and grouped right-side controls. It
 auto-connects to the default Basler camera when the window opens, so the
 acquisition group only exposes Preview and Capture actions. It also supports save
 directory and filename templates, TIFF/PNG/JPG output, independent Live/Snap
-pixel-resolution choices, exposure/gain, Gamma, sharpness, default
-horizontal+vertical software flip, and two-point scale calibration per objective
-through a popup dialog. The default snapshot format is TIFF and the default
-filename template is `{date}_{time}_{objective}_{index}`. Saved images include a
-scale bar when the selected objective has a calibration entry in
-`runtime\camera_scale_calibration.json`.
+pixel-resolution choices, preview zoom readout with mouse-wheel zoom,
+exposure/gain, Gamma, sharpness, default horizontal+vertical software flip, and
+two-point scale calibration per objective through a popup dialog. Camera preview
+annotations are rendered in red. The measurement group provides a
+button-controlled center crosshair, two-point line distance with a live
+first-point-to-cursor preview line, closed-polygon area/perimeter with cursor
+preview while adding points, undo, clear, delete-selected, and a result table.
+Uncalibrated objectives can still be measured in px / px^2; calibrated
+objectives use the current `um_per_pixel` scale and display um/mm or um^2/mm^2.
+Live preview shows the current FPS, caps camera grabs at 60 FPS, limits GUI frame
+delivery/rendering to 30 FPS, coalesces queued frames so only the latest frame is
+rendered, and uses Qt image transforms for preview flips to keep the
+motion-control UI responsive while the camera is running. Live exposure, gain,
+Gamma, and sharpness writes are applied without restarting preview;
+acquisition-size changes still briefly pause preview while the camera is
+reconfigured. Exposure defaults to manual 10 ms so a dark field cannot make
+Basler auto exposure stretch preview grabs into second-long frames. The default snapshot format is TIFF
+and the default filename template is `{date}_{time}_{objective}_{index}`. Saved
+images include a red scale bar when the selected objective has a calibration entry in
+`runtime\camera_scale_calibration.json`; annotated snapshots also burn in
+measurement objects/center crosshair and write a same-stem `.measurements.json` sidecar.
 
 正常启动会同时显示主窗口和 Basler 相机窗口；相机窗口不嵌入主控制 GUI。使用本程序相机窗口前关闭 pylon Viewer；Viewer 可能占用相机导致程序无法抓帧。截图保存到 `runtime\camera_snapshots\`。
 
@@ -113,7 +128,7 @@ python .\run_transfer_station.py --smoke-exit
 当前验证基线：
 
 ```text
-583 passed
+625 passed, 6 warnings, 2 subtests passed
 ```
 
 如果只是验证运动控制核心：
@@ -139,7 +154,8 @@ python -m pytest tests\test_gas_api.py tests\test_gas_controller.py tests\test_a
 | `src\automatic_transfer_station\nosepiece_controller.py` | LV-NCNT2 电动物镜转盘串口控制 |
 | `src\automatic_transfer_station\objective_panel.py` | 物镜选择 GUI |
 | `src\automatic_transfer_station\camera_controller.py` | Basler `pypylon` 相机控制层（puA2500-14ucMIC，默认序列号 25141247） |
-| `src\automatic_transfer_station\camera_image.py` | Camera image flip, QImage conversion, and scale-bar overlay helpers |
+| `src\automatic_transfer_station\camera_image.py` | Camera image flip, QImage conversion, scale-bar, measurement, and crosshair overlay helpers |
+| `src\automatic_transfer_station\camera_measurement.py` | Basler camera measurement geometry, units, and `.measurements.json` sidecar payloads |
 | `src\automatic_transfer_station\camera_panel.py` | Basler 相机窗口内的预览 GUI、曝光/增益控制、清晰度、保存和比例尺标定 |
 | `src\automatic_transfer_station\camera_settings.py` | Basler camera window settings and objective scale calibration persistence |
 | `src\automatic_transfer_station\camera_window.py` | 独立顶层 Basler 相机窗口 |
@@ -218,7 +234,7 @@ src\automatic_transfer_station\axis_calibration.py
 
 - **轴3（MicroscopeZ）无任何软件/硬件行程边界**：无标定量程、空 `HardLimitConfig`、开机 `limits_off`；绝对/相对/连续 jog 全路径无真实行程保护，是光学附近最大的无保护运动路径。被污染的显微镜点位文件（`microscope_z_positions.json`）会直接驱动无边界 Z 轴。**当前决定：暂不加真实软件钳位**，待硬件确认是否有行程开关后再接入 `AXIS_HARD_LIMITS[3]` 或保守软钳位。（注：连续 jog 自 2026-06-22 改为梯形行进至 `±MICROSCOPE_Z_MAX_ABS_PULSE` 的 sanity cap——这是"卡按钮"后备封顶，**不是**真实行程限位，操作仍需人工监护。）
 - **Y1（轴2）正向硬限位已修复复测**：2026-06-24 从 `40..52 mm` 正向小步复测确认 `card0 IO3` 在约 `52.000 mm` 持续触发，并在退回约 `51.7805 mm` 时释放；程序已接入 `positive_io=3`，负向仍为 `IO2`。接线或传感器调整后仍需按 `2 mm` 越程规则复验。
-- R 轴使用 HOME9 零位，不是普通 IO 限位。2026-06-24 用户现场修正光电狭缝零位范围为 `350..365 deg`；程序已改为回零前先到 `350.0 deg`，再正向受限搜索约 `18 deg`。同日实测原生 HOME 与 `CAPTURE_HOME` 在该窗口内均未捕捉到信号，需复查 HOME9 接线/通道/电平配置后再确认回零成功链路。
+- R 轴当前使用 `card0 IO8` 普通外部输入作为零位开关，不再使用轴 9 原生 HOME9 作为当前回零链路。GUI R 回零可从 R 轴全局安全范围 `-10..365 deg` 内任意当前位置发起；`-10..10 deg` 只是 IO8 搜索窗口。流程为：先检查 `GA_GetExtDiBit(0, 8)`，若已触发则直接成功；未触发则先预定位到 `-10 deg`，再从 `-10 deg` 扫到 `+10 deg` 并轮询 IO8；读到 IO8 后停止并由 GUI 将当前位置写为运行时标定 `0.000 deg`。若全程未读到 IO8，则提示未检测到 `card0 IO8` 零位开关，当前位置不写成 `0 deg`。历史 HOME9 实验和 2026-06-24 `350..365 deg` HOME 捕获失败记录仅作为历史，不代表当前接线。
 - X2/X3 有机械干涉边界，禁止单独绕过 `axis_calibration.py` 中的安全检查直接下发运动。
 - 未确认限位映射时，测试只允许超过标称行程 `2 mm`，然后停止。
 
@@ -466,6 +482,7 @@ runtime
 | `axis_runtime_calibration.json` | 是，如果存在 | 用户运行时坐标标定 |
 | `microscope_z_positions.json` | 是，如果存在 | MicroscopeZ 点位管理 |
 | `camera_snapshots\*` | 按需 | Basler 相机窗口截图；默认 TIFF，也支持 PNG/JPG |
+| `camera_snapshots\*.measurements.json` | 按需 | Annotated camera snapshot sidecar containing objective, calibration, crosshair, and measurement geometry/results |
 | `camera_settings.json` | 是，如果存在 | Basler 相机窗口保存路径、文件名模板、Live/Snap 清晰度、显示翻转和图像设置 |
 | `camera_scale_calibration.json` | 是，如果存在 | 按倍率保存的 Basler 相机比例尺标定 |
 | `nosepiece_trace.log` | 否 | `--nosepiece-trace` 物镜串口诊断日志，排查完可删 |

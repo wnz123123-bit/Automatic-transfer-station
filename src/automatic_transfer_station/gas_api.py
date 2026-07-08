@@ -112,6 +112,8 @@ class GasApi:
             "GA_ZeroPos": ([ctypes.c_short, ctypes.c_short], ctypes.c_int),
             "GA_HomeSetPrm": ([ctypes.c_short, ctypes.POINTER(AxisHomePrm)], ctypes.c_int),
             "GA_HomeStart": ([ctypes.c_short], ctypes.c_int),
+            "GA_GetExtDiBit": ([ctypes.c_short, ctypes.c_short, ctypes.POINTER(ctypes.c_ushort)], ctypes.c_int),
+            "GA_GetExtDiValue": ([ctypes.c_short, ctypes.POINTER(ctypes.c_ulong), ctypes.c_short], ctypes.c_int),
         }
 
         for name, (argtypes, restype) in signatures.items():
@@ -202,6 +204,20 @@ class GasApi:
         if result != 0:
             raise RuntimeError(f"GA_GetPrfPos({axis}) failed with {result}")
         return float(value.value)
+
+    def get_ext_di_bit(self, card_index: int, bit_index: int) -> int:
+        value = ctypes.c_ushort(0)
+        result = int(self.dll.GA_GetExtDiBit(card_index, bit_index, ctypes.byref(value)))
+        if result != 0:
+            raise RuntimeError(f"GA_GetExtDiBit({card_index}, {bit_index}) failed with {result}")
+        return int(value.value)
+
+    def get_ext_di_value(self, card_index: int) -> int:
+        value = ctypes.c_ulong(0)
+        result = int(self.dll.GA_GetExtDiValue(card_index, ctypes.byref(value), 1))
+        if result != 0:
+            raise RuntimeError(f"GA_GetExtDiValue({card_index}) failed with {result}")
+        return int(value.value)
 
     def zero_position(self, axis: int, count: int = 1) -> int:
         return int(self.dll.GA_ZeroPos(axis, count))
