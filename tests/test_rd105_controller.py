@@ -332,6 +332,52 @@ class RD105ControllerTests(unittest.TestCase):
 
         self.assertEqual("超温保护", snapshot["run_state"])
 
+    def test_lost_enable_readback_keeps_watchdog_armed_and_disconnect_verifies_off(self):
+        from unittest.mock import Mock
+        from automatic_transfer_station.rd105_controller import TemperatureController
+
+        controller = TemperatureController()
+        controller.last_enable_state = False
+        controller.ser = Mock(is_open=True)
+        writes = []
+        controller._write_ascii_value_locked = lambda name, value: writes.append((name, value)) or True
+        controller._query_ascii_value_locked = Mock(side_effect=[None, "0"])
+        self.assertFalse(controller._set_enable_locked(True))
+        self.assertIsNone(controller.last_enable_state)
+        self.assertTrue(controller._watchdog_evaluate(100))
+        controller.disconnect()
+        self.assertEqual(writes, [("ENABLE", 1), ("ENABLE", 0)])
+        self.assertFalse(controller.disconnect_disable_failed)
+        self.assertIs(controller.last_enable_state, False)
+
+    def test_lost_port_after_unconfirmed_enable_reports_shutdown_failure(self):
+        from automatic_transfer_station.rd105_controller import TemperatureController
+
+        controller = TemperatureController()
+        controller.last_enable_state = False
+        controller._write_verified_value_locked = lambda *args: False
+        controller._set_enable_locked(True)
+        controller.disconnect()
+        self.assertTrue(controller.disconnect_disable_failed)
+
+    def test_corrupt_pwm_still_trips_overtemp_and_does_not_mask_failed_disable(self):
+        from unittest.mock import Mock
+        from automatic_transfer_station.rd105_controller import TemperatureController
+
+        controller = TemperatureController()
+        controller._last_read_ok_time = 1
+        controller._send_ascii_command_locked = lambda cmd: "TC1:TCADJTEMP=22000000@TC1:PWM=BAD@"
+        controller._query_ascii_value_locked = lambda name: "1"
+        controller._write_ascii_value_locked = Mock(return_value=False)
+        for _ in range(2):
+            snapshot = controller.read_live_data()
+            self.assertEqual(snapshot["temperature"], 220)
+            self.assertIsNone(snapshot["output_percent"])
+            self.assertIn("关闭输出失败", snapshot["safety_alarm"])
+        self.assertEqual(controller._write_ascii_value_locked.call_count, 2)
+        self.assertEqual(controller._last_read_ok_time, 1)
+        self.assertTrue(controller._watchdog_evaluate(100))
+
     def test_disconnect_disables_output_before_closing_when_enabled(self):
         # Bug #3: disconnect() must turn the heater off (ENABLE=0) before closing
         # the serial port, so exiting the app does not leave the heater running.

@@ -135,6 +135,7 @@ class TemperatureController:
         self.last_error = ""
         self.last_pid_profile = None
         self.last_enable_state = None
+        self._enable_unconfirmed = False
         self.last_error_code = None
         self.last_max_output_duty = None
         self.over_temperature_alarm = False
@@ -202,7 +203,8 @@ class TemperatureController:
         # as a raw-PWM-derived figure (with a "PWM" marker) rather than a calibrated
         # percentage, so it cannot be confused with the LIMITED max-output-duty
         # percent shown right beside it (see temperature_panel._format_output_pwm).
-        return int(raw_value) / 20000.0
+        value = _safe_int(raw_value)
+        return None if value is None else value / 20000.0
 
     def _set_last_error(self, message):
         self.last_error = message
@@ -295,9 +297,9 @@ class TemperatureController:
     def _disable_output_on_disconnect_locked(self):
         self.disconnect_disable_failed = False
         if not (self.ser and self.ser.is_open):
-            return
-        if self.last_enable_state is False:
-            # Output already known to be off; nothing to send.
+            if self._watchdog_heating_active():
+                self.disconnect_disable_failed = True
+                self._set_last_error(tr("断开连接时关闭输出失败"))
             return
         try:
             if not self._set_enable_locked(False):
@@ -484,6 +486,7 @@ class TemperatureController:
             if raw_value is not None:
                 self._set_last_error(tr("RD105 输出使能读数格式异常: {raw_value}").format(raw_value=raw_value))
             return None
+        self._enable_unconfirmed = False
         self.last_enable_state = bool(value)
         return self.last_enable_state
 
@@ -687,24 +690,21 @@ class TemperatureController:
                 if response is None:
                     return None
 
-                # BP2: a successful live-data read refreshes the watchdog freshness
-                # timestamp and clears any latched watchdog trip so a NEW stall can
-                # trip again. Done under serial_lock (we hold it here) so the
-                # watchdog thread sees a consistent timestamp.
-                self._last_read_ok_time = self._clock()
-                self._watchdog_tripped = False
-                self._watchdog_io_done = False
-
                 data = self._parse_data_demand(response)
                 temp_raw = data.get(f"TC{RD105_CHANNEL}:TCADJTEMP")
                 output_raw = data.get(f"TC{RD105_CHANNEL}:PWM")
 
                 temperature = None if temp_raw is None else self._decode_temperature_value(temp_raw)
-                output_percent = None if output_raw is None else self._output_percent_from_raw(output_raw)
-                target_temperature = self._read_target_temperature_locked()
                 enabled = self._read_enable_state_locked()
-                max_output_duty = self._read_max_output_duty_locked()
                 enabled, safety_alarm = self._apply_over_temperature_guard_locked(temperature, enabled)
+                if temperature is not None and enabled is not None and (not safety_alarm or enabled is False):
+                    self._last_read_ok_time = self._clock()
+                    self._watchdog_tripped = False
+                    self._watchdog_io_done = False
+
+                output_percent = self._output_percent_from_raw(output_raw)
+                target_temperature = self._read_target_temperature_locked()
+                max_output_duty = self._read_max_output_duty_locked()
                 control_error = None
                 if safety_alarm:
                     ramp_setpoint = None
@@ -749,7 +749,11 @@ class TemperatureController:
         return self._write_verified_value_locked("SPEED", speed_value)
 
     def _set_enable_locked(self, enabled):
+        # The device may act on a write even when its ACK or readback is lost.
+        self._enable_unconfirmed = True
+        self.last_enable_state = None
         if self._write_verified_value_locked("ENABLE", 1 if enabled else 0):
+            self._enable_unconfirmed = False
             self.last_enable_state = bool(enabled)
             _log.info("RD105 ENABLE → %s", "ON" if enabled else "OFF")
             return True
@@ -861,7 +865,7 @@ class TemperatureController:
         """
         if self._software_ramp is not None:
             return True
-        return self.last_enable_state is True
+        return self._enable_unconfirmed or self.last_enable_state is True
 
     def _watchdog_evaluate(self, now):
         """Pure decision: should the watchdog trip NOW? No IO, no side effects
