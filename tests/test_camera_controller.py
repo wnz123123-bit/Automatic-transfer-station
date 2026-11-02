@@ -506,6 +506,30 @@ class CameraControllerTests(unittest.TestCase):
         self.assertLess(camera.AcquisitionMode.set_values.index("Continuous"), start_index)
         self.assertLess(camera.TriggerMode.set_values.index("Off"), start_index)
 
+    def test_camera_without_binning_nodes_distinguishes_fixed_sampling_from_read_error(self):
+        from unittest.mock import Mock
+        from automatic_transfer_station.camera_controller import PypylonCameraHandle
+        camera = FreeRunRequiredCamera()
+        camera.GetNodeMap = Mock()
+        camera.GetNodeMap.return_value.GetNode.return_value = None
+        handle = PypylonCameraHandle(FakePylonModule(), camera)
+        self.assertEqual(handle.grab_rgb().binning, 1)
+        camera.GetNodeMap.return_value.GetNode.return_value = object()
+        self.assertIsNone(handle.grab_rgb().binning)
+
+    def test_frame_binning_uses_actual_symmetric_nodes_even_if_a_write_was_rejected(self):
+        from automatic_transfer_station.camera_controller import CameraAcquisitionSettings, PypylonCameraHandle
+        camera = FreeRunRequiredCamera()
+        camera.BinningHorizontal = FakeFeature(1)
+        camera.BinningVertical = RejectingFeature(1)
+        for feature in (camera.BinningHorizontal, camera.BinningVertical):
+            feature.GetValue = lambda f=feature: f.value
+        handle = PypylonCameraHandle(FakePylonModule(), camera)
+        handle.apply_acquisition_settings(CameraAcquisitionSettings(width=4, height=4, binning=2))
+        self.assertIsNone(handle.grab_rgb().binning)
+        camera.BinningVertical.value = 2
+        self.assertEqual(handle.grab_rgb().binning, 2)
+
     def test_pypylon_single_grab_stops_camera_when_retrieve_times_out(self):
         from automatic_transfer_station.camera_controller import PypylonCameraHandle
 

@@ -32,6 +32,7 @@ def flip_frame(frame: CameraFrame, *, horizontal: bool, vertical: bool) -> Camer
         height=frame.height,
         rgb_bytes=b"".join(rows),
         metadata=dict(frame.metadata),
+        binning=frame.binning,
     )
 
 
@@ -40,7 +41,7 @@ def qimage_from_frame(frame: CameraFrame) -> QImage:
     return QImage(frame.rgb_bytes, int(frame.width), int(frame.height), stride, QImage.Format_RGB888).copy()
 
 
-def choose_scale_bar(image_width: int, um_per_pixel: float) -> tuple[int, int]:
+def choose_scale_bar(image_width: int, um_per_pixel: float) -> tuple[float, int]:
     max_pixels = max(24, int(image_width * 0.22))
     max_um = max_pixels * float(um_per_pixel)
     candidates = []
@@ -50,7 +51,7 @@ def choose_scale_bar(image_width: int, um_per_pixel: float) -> tuple[int, int]:
             value = multiplier * base
             if value <= max_um:
                 candidates.append(value)
-    label_um = int(max(candidates or [max_um]))
+    label_um = max(candidates or [max_um])
     return label_um, max(1, int(round(label_um / float(um_per_pixel))))
 
 

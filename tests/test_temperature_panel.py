@@ -1196,6 +1196,35 @@ class TemperaturePanelCloseWithMainWindowTests(unittest.TestCase):
         window.temperature_panel._serial_executor.reap_detached_threads()
         self._dispose_window(window)
 
+    def test_exit_during_connect_closes_the_port_after_connect_returns(self):
+        window = self._make_window()
+        panel = window.temperature_panel
+        entered, release = threading.Event(), threading.Event()
+        fake = FakeTemperatureController()
+        def connect():
+            entered.set()
+            release.wait(2)
+            fake.calls.append(("opened",))
+            fake.is_connected = True
+            return True
+        fake.connect = connect
+        panel.controller_factory = lambda port: fake
+        panel.connect_to_device()
+        self.assertTrue(entered.wait(1))
+        self.assertFalse(panel.connect_to_device())
+        window.HEATER_OFF_CLOSE_TIMEOUT_MS = 50
+        try:
+            window._prepare_for_close()
+            self.assertNotIn(("disconnect",), fake.calls)
+        finally:
+            release.set()
+        self.assertTrue(wait_plain(lambda: ("disconnect",) in fake.calls))
+        self.assertFalse(fake.is_connected)
+        self.assertFalse(panel.monitor_timer.isActive())
+        panel._serial_executor.wait_for_idle()
+        panel._serial_executor.reap_detached_threads()
+        self._dispose_window(window)
+
     def test_close_event_is_bounded_when_disconnect_wedged(self):
         # A wedged serial driver must not hang window close: the heater-off wait is
         # capped at HEATER_OFF_CLOSE_TIMEOUT_MS and the worker is then detached.

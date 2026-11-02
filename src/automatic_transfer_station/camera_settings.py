@@ -37,6 +37,7 @@ class ScaleCalibration:
     p1: tuple[float, float]
     p2: tuple[float, float]
     calibrated_at: str
+    binning: int | None = 1
 
 
 def _format_parts(now: Callable[[], str] | None = None) -> tuple[str, str]:
@@ -125,6 +126,7 @@ class ScaleCalibrationStore:
                     p1=tuple(data["p1"]),
                     p2=tuple(data["p2"]),
                     calibrated_at=str(data["calibrated_at"]),
+                    binning=data.get("binning") if type(data.get("binning")) is int else None,
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -141,7 +143,11 @@ class ScaleCalibrationStore:
         known_um: float,
         p1: tuple[float, float],
         p2: tuple[float, float],
+        *,
+        binning: int = 1,
     ) -> ScaleCalibration:
+        if binning < 1:
+            raise ValueError("Calibration requires a positive binning factor")
         distance = math.dist(p1, p2)
         if distance <= 0:
             raise ValueError("Calibration points must not be identical")
@@ -153,6 +159,7 @@ class ScaleCalibrationStore:
             p1=(float(p1[0]), float(p1[1])),
             p2=(float(p2[0]), float(p2[1])),
             calibrated_at=datetime.now().isoformat(timespec="seconds"),
+            binning=binning,
         )
         calibrations = self.load()
         calibrations[str(objective)] = calibration

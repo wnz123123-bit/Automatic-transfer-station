@@ -737,6 +737,79 @@ class CameraPanelTests(unittest.TestCase):
         self.assertEqual("100.0 um", payload["measurements"][0]["result"]["display"])
         self.assertEqual({"x": 50.0, "y": 50.0}, payload["crosshair"])
 
+    def test_saved_scale_uses_snapshot_binning_and_preserves_live_measurements(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        from automatic_transfer_station.camera_image import draw_scale_bar
+        from automatic_transfer_station.camera_controller import CameraFrame
+
+        controller = FakeCameraController()
+        panel, controls = self._make_panel(controller)
+        live = CameraFrame(100, 50, bytes(100 * 50 * 3), binning=2)
+        still = CameraFrame(200, 100, bytes(200 * 100 * 3), binning=1)
+        panel._last_frame = live
+        panel._render_frame(live)
+        panel.start_scale_calibration()
+        panel.record_calibration_point(0, 0)
+        panel.record_calibration_point(50, 0)  # 100 um at 2x2 binning
+        self.assertEqual(panel.scale_store.load()["10X"].binning, 2)
+        controls["cameraCrosshairToggle"].setChecked(True)
+        panel._create_measurement("line", [(0, 0), (50, 0)])
+        controller.frame = still
+        with patch("automatic_transfer_station.camera_panel.draw_scale_bar", wraps=draw_scale_bar) as bar:
+            path = panel.save_snapshot()
+            self.assertEqual(bar.call_args.args[1].um_per_pixel, 1)
+        payload = json.loads(path.with_suffix(".measurements.json").read_text(encoding="utf-8"))
+        self.assertEqual((payload["binning"], payload["um_per_pixel"]), (1, 1))
+        self.assertEqual(payload["measurements"][0]["um_per_pixel"], 2)
+        self.assertEqual(panel._current_um_per_pixel(), 2)
+        self.assertIsNone(panel._current_um_per_pixel(replace(still, binning=None)))
+
+    def test_legacy_calibration_requires_recalibration_before_physical_output(self):
+        from unittest.mock import patch
+        controller = FakeCameraController()
+        panel, controls = self._make_panel(controller)
+        panel.scale_store.calibrate_from_points("10X", 100, (0, 0), (50, 0))
+        path = panel.scale_store.path
+        legacy = json.loads(path.read_text(encoding="utf-8"))
+        del legacy["10X"]["binning"]
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        panel.scale_calibrations = panel.scale_store.load()
+        with patch("automatic_transfer_station.camera_panel.draw_scale_bar") as bar:
+            panel._render_frame(controller.frame)
+            bar.assert_not_called()
+        self.assertIn("重新标定", controls["cameraScaleStatusLabel"].text())
+        self.assertIsNone(panel._current_um_per_pixel())
+
+    def test_blocked_camera_grab_defers_close_and_blocked_close_is_bounded(self):
+        from threading import Event
+        controller = FakeCameraController()
+        panel, _ = self._make_panel(controller)
+        grabbing, allow_grab, closing, allow_close = (Event() for _ in range(4))
+        def grab_one(timeout_ms):
+            grabbing.set()
+            allow_grab.wait(3)
+            return controller.frame
+        def close():
+            closing.set()
+            allow_close.wait(3)
+        controller.grab_one = grab_one
+        controller.close = close
+        try:
+            panel.start_preview()
+            self.assertTrue(grabbing.wait(1))
+            started = time.monotonic()
+            self.assertFalse(panel.prepare_for_close(timeout_ms=50))
+            self.assertLess(time.monotonic() - started, 0.8)
+            self.assertFalse(closing.is_set())
+            allow_grab.set()
+            self.assertTrue(closing.wait(1))
+            self.assertFalse(panel.prepare_for_close(timeout_ms=30))
+        finally:
+            allow_grab.set()
+            allow_close.set()
+            self.assertTrue(panel.prepare_for_close(timeout_ms=1000))
+
     def test_snapshot_saves_latest_frame_to_snapshot_directory(self):
         controller = FakeCameraController()
         panel, _controls = self._make_panel(controller)
@@ -757,6 +830,7 @@ class CameraPanelTests(unittest.TestCase):
         self.addCleanup(dialog.close)
         controls["cameraCalibrationLengthSpin"].setValue(100.0)
 
+        panel._render_frame(controller.frame)
         panel.start_scale_calibration()
         panel.record_calibration_point(10, 20)
         panel.record_calibration_point(110, 20)

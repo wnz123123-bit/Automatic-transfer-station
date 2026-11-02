@@ -298,6 +298,8 @@ TRANSLATIONS.update({
     "预览失败: {error}": "Preview failed: {error}",
     "请在预览图像上点击标尺两端": "Click both ends of the scale reference in the preview",
     "已记录第一个标定点": "First calibration point recorded",
+    "{objective}: 旧标定缺少采样倍率，请重新标定": "{objective}: previous calibration has no binning factor. Please recalibrate.",
+    "无法确认图像采样倍率，无法标定": "Cannot calibrate without a verified image binning factor.",
     "{objective}: 未标定": "{objective}: uncalibrated",
     "{objective}: {value:.4g} um/pixel": "{objective}: {value:.4g} um/pixel",
 })

@@ -537,6 +537,46 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual([2000], calls)
 
+    def test_shutdown_attempts_board_close_after_stop_failure_before_camera(self):
+        from automatic_transfer_station.main_window import MainWindow
+        get_app()
+        events = []
+        class Controller(RecordingController):
+            def stop_all(self):
+                events.append("stop")
+                raise RuntimeError("stop failed")
+            def close_board(self):
+                events.append("board closed")
+                super().close_board()
+        controller = Controller()
+        window = MainWindow(controller=controller, motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+                            position_store_path=self.position_store_path)
+        controller.is_open = True
+        with patch.object(window.temperature_panel, "disconnect_from_device", side_effect=lambda: events.append("heater")), \
+             patch.object(window.camera_window, "close_after_prepare", side_effect=lambda **kw: events.append("camera")):
+            window._prepare_for_close()
+        self.assertEqual(events, ["heater", "stop", "board closed", "camera"])
+        window.camera_window.close_after_prepare()
+
+    def test_stuck_board_stop_releases_gui_and_still_attempts_close_after_recovery(self):
+        from automatic_transfer_station.main_window import MainWindow
+        get_app()
+        controller = RecordingController()
+        window = MainWindow(controller=controller, motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+                            position_store_path=self.position_store_path)
+        release, closed = threading.Event(), threading.Event()
+        controller.is_open = True
+        controller.stop_all = lambda: release.wait(3)
+        controller.close_board = closed.set
+        window.MOTION_CLOSE_TIMEOUT_MS = 50
+        try:
+            started = time.monotonic()
+            window._prepare_for_close()
+            self.assertLess(time.monotonic() - started, 1)
+        finally:
+            release.set()
+        self.assertTrue(closed.wait(1))
+
     def test_pyside_axis_panel_uses_html_preview_card_model(self):
         from automatic_transfer_station.main_window import MainWindow
 
@@ -2314,7 +2354,7 @@ class Package6SafetyAffordanceTests(unittest.TestCase):
         from automatic_transfer_station.gas_controller import GasMotionController
         from automatic_transfer_station.main_window import MainWindow
         from unittest.mock import Mock
-        app = get_app()
+        get_app()
         api = FakeApi()
         ctl = GasMotionController(api)
         ctl.is_open = True
@@ -2324,20 +2364,21 @@ class Package6SafetyAffordanceTests(unittest.TestCase):
         window._confirm = lambda *args: True
         window._record_axis9_home_zero = Mock()
         try:
-            window._home_axis9()
-            self.assertIn(("update", 1 << 8), api.calls)
-            queued = []
-            submit = window._run_or_queue_motion_command
-            window._run_or_queue_motion_command = lambda command, **kwargs: queued.append(command)
-            from PySide6.QtTest import QTest
-            QTest.qWait(60)
-            window._run_or_queue_motion_command = submit
-            self.assertEqual(len(queued), 1)
-            window._stop_all_motion()
-            self.assertIsNone(queued[0]())
-            api.ext_di_bits[(0, 8)] = 1
-            QTest.qWait(60)
-            app.processEvents()
+            with patch("automatic_transfer_station.main_window.QTimer.singleShot") as timer:
+                window._home_axis9()
+                self.assertIn(("update", 1 << 8), api.calls)
+                timer.assert_called_once()
+                next_poll = timer.call_args.args[-1]
+                with patch.object(window, "_run_or_queue_motion_command") as submit:
+                    next_poll()
+                submit.assert_called_once()
+                # Stop after submission but before this queued poll gets to run.
+                window._stop_all_motion()
+                api.ext_di_bits[(0, 8)] = 1
+                command = submit.call_args.args[0]
+                self.assertIsNone(command())
+                submit.call_args.kwargs["on_success"](None)
+                timer.assert_called_once()
             window._record_axis9_home_zero.assert_not_called()
             self.assertIn(("stop", 0xFFFF, 0), api.calls)
             self.assertNotIn(("set_position", 9, 41667), api.calls)

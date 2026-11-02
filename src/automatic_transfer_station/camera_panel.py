@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import Future, TimeoutError
+from dataclasses import replace
 from datetime import datetime
 import json
+import logging
 import math
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QDeadlineTimer, QElapsedTimer, QObject, Qt, QThread, QTimer, Signal
@@ -319,6 +323,7 @@ class CameraPanel(QWidget):
         self._task_executor = task_executor if task_executor is not None else ThreadedCameraExecutor(self)
         self._preview_thread: CameraPreviewThread | None = None
         self._detached_preview_threads: list[CameraPreviewThread] = []
+        self._displayed_frame: CameraFrame | None = None
         self._last_frame: CameraFrame | None = None
         self._pending_frame: CameraFrame | None = None
         self._preview_fps: float | None = None
@@ -340,6 +345,7 @@ class CameraPanel(QWidget):
         self._calibration_points: list[tuple[float, float]] = []
         self._scale_dialog: QDialog | None = None
         self._closing = False
+        self._close_result: Future[bool] | None = None
         from .i18n import translator, Retranslator, tr
         self._tr = tr
         self._rt = Retranslator(translator)
@@ -982,11 +988,14 @@ class CameraPanel(QWidget):
             return int(self._last_frame.width), int(self._last_frame.height)
         return self._base_dimensions()
 
-    def _current_um_per_pixel(self) -> float | None:
+    def _current_um_per_pixel(self, frame: CameraFrame | None = None) -> float | None:
         calibration = self.scale_calibrations.get(self._current_objective)
-        if calibration is None or calibration.um_per_pixel <= 0:
+        frame = frame if frame is not None else self._displayed_frame
+        if (calibration is None or not calibration.binning or calibration.binning < 1
+                or not math.isfinite(calibration.um_per_pixel) or calibration.um_per_pixel <= 0
+                or frame is None or not frame.binning or frame.binning < 1):
             return None
-        return float(calibration.um_per_pixel)
+        return calibration.um_per_pixel * frame.binning / calibration.binning
 
     def _on_crosshair_toggled(self) -> None:
         if not self.controls["cameraCrosshairToggle"].isChecked():
@@ -1044,6 +1053,7 @@ class CameraPanel(QWidget):
         self._refresh_last_frame()
 
     def _on_display_transform_changed(self) -> None:
+        self._calibration_points.clear()
         had_overlay = bool(
             self._measurements
             or self._active_measurement_points
@@ -1068,12 +1078,13 @@ class CameraPanel(QWidget):
             frame_height=int(frame.height),
             flip_horizontal=self.controls["cameraFlipHorizontal"].isChecked(),
             flip_vertical=self.controls["cameraFlipVertical"].isChecked(),
-            um_per_pixel=self._current_um_per_pixel(),
+            um_per_pixel=self._current_um_per_pixel(frame),
             crosshair=self._center_crosshair_point(frame.width, frame.height)
             if self.controls["cameraCrosshairToggle"].isChecked()
             else None,
             measurements=tuple(self._measurements),
         )
+        payload["binning"] = frame.binning
         sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         return sidecar
 
@@ -1098,7 +1109,8 @@ class CameraPanel(QWidget):
                     restore_settings=self._live_settings(),
                     timeout_ms=DEFAULT_CAMERA_GRAB_TIMEOUT_MS,
                 )
-                self._last_frame = frame
+                if self._displayed_frame is None:
+                    self._last_frame = frame
             elif frame is None:
                 raise CameraError(self._tr("没有可保存的相机图像"))
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -1123,25 +1135,39 @@ class CameraPanel(QWidget):
                 self.start_preview()
 
     def prepare_for_close(self, timeout_ms: int = 5000) -> bool:
-        self._closing = True
-        all_idle = self.stop_preview(timeout_ms=timeout_ms)
-        executor = self._task_executor
-        if hasattr(executor, "wait_for_idle"):
-            executor.wait_for_idle(timeout_ms)
-            if hasattr(executor, "is_busy") and executor.is_busy():
-                all_idle = False
-        if hasattr(executor, "detach_running_threads"):
-            executor.detach_running_threads()
-            if getattr(executor, "_detached_threads", None):
-                all_idle = False
-        if self.controller is not None:
-            try:
-                self.controller.close()
-            except Exception as exc:  # noqa: BLE001
-                self._set_status(str(exc))
-            finally:
-                self.controller = None
-        return all_idle
+        deadline = QDeadlineTimer(max(0, int(timeout_ms)))
+        if self._close_result is None:
+            self._closing = True
+            self.stop_preview(timeout_ms=deadline.remainingTime())
+            executor = self._task_executor
+            if hasattr(executor, "wait_for_idle"):
+                executor.wait_for_idle(deadline.remainingTime())
+            if hasattr(executor, "detach_running_threads"):
+                executor.detach_running_threads()
+            pending = (*self._detached_preview_threads, *getattr(executor, "_detached_threads", ()))
+            result = self._close_result = Future()
+
+            def finish_close():
+                try:
+                    # A pending connect may still be constructing/opening the controller.
+                    for worker in pending:
+                        worker.wait()
+                    if self.controller is not None:
+                        self.controller.close()
+                        self.controller = None
+                except Exception:
+                    logging.getLogger("ats.camera").exception("Camera shutdown failed")
+                    result.set_result(False)
+                else:
+                    result.set_result(True)
+
+            # Both grab and close can block inside the SDK. Never hold the GUI
+            # thread beyond the deadline, even when close itself is the stuck call.
+            threading.Thread(target=finish_close, name="ATSCameraClose", daemon=True).start()
+        try:
+            return self._close_result.result(timeout=deadline.remainingTime() / 1000)
+        except TimeoutError:
+            return False
 
     def _on_task_done(self, kind: str, result) -> None:
         if self._closing:
@@ -1162,7 +1188,8 @@ class CameraPanel(QWidget):
             self._sync_connection_state(False)
             self.controller = None
             self.controls["cameraDeviceLabel"].setText(self._tr("相机: 未连接"))
-            self._last_frame = None
+            self._last_frame = self._displayed_frame = self._pending_frame = None
+            self._update_scale_status()
             self.controls["cameraImageLabel"].setText(self._tr("无图像"))
             self.controls["cameraImageLabel"].setPixmap(QPixmap())
             self.controls["cameraImageLabel"].set_source_size(0, 0)
@@ -1207,6 +1234,13 @@ class CameraPanel(QWidget):
         self._render_frame(frame)
 
     def _render_frame(self, frame: CameraFrame) -> None:
+        previous = self._displayed_frame
+        self._displayed_frame = frame
+        if previous is None or (previous.width, previous.height, previous.binning) != (frame.width, frame.height, frame.binning):
+            self._calibration_points.clear()
+            self._active_measurement_points.clear()
+            self._active_measurement_preview_point = None
+            self._update_scale_status()
         image = self._processed_image(frame, with_scale=True, with_measurements=True)
         label = self.controls["cameraImageLabel"]
         label.set_source_size(image.width(), image.height())
@@ -1310,8 +1344,9 @@ class CameraPanel(QWidget):
                 orientation |= Qt.Vertical
             image = image.flipped(orientation)
         calibration = self.scale_calibrations.get(self._current_objective)
-        if with_scale and calibration is not None:
-            image = draw_scale_bar(image, calibration, self._current_objective)
+        scale = self._current_um_per_pixel(frame)
+        if with_scale and scale is not None:
+            image = draw_scale_bar(image, replace(calibration, um_per_pixel=scale), self._current_objective)
         if with_measurements:
             image = draw_measurement_overlay(
                 image,
@@ -1449,6 +1484,7 @@ class CameraPanel(QWidget):
             combo.blockSignals(False)
         self._update_scale_status()
         if previous_objective != self._current_objective:
+            self._calibration_points.clear()
             self._clear_measurements_for_coordinate_change()
         self._refresh_last_frame()
 
@@ -1463,6 +1499,10 @@ class CameraPanel(QWidget):
     def record_calibration_point(self, x: float, y: float) -> None:
         if not self._calibration_active:
             return
+        frame = self._displayed_frame
+        if frame is None or not frame.binning:
+            self._set_status(self._tr("无法确认图像采样倍率，无法标定"))
+            return
         self._calibration_points.append((float(x), float(y)))
         if len(self._calibration_points) < 2:
             self._set_status(self._tr("已记录第一个标定点"))
@@ -1473,6 +1513,7 @@ class CameraPanel(QWidget):
             self._calibration_known_um,
             p1,
             p2,
+            binning=frame.binning,
         )
         self.scale_calibrations[self._current_objective] = calibration
         self._calibration_active = False
@@ -1483,12 +1524,15 @@ class CameraPanel(QWidget):
 
     def _update_scale_status(self) -> None:
         calibration = self.scale_calibrations.get(self._current_objective)
-        if calibration is None:
+        scale = self._current_um_per_pixel()
+        if calibration is not None and not calibration.binning:
+            text = self._tr("{objective}: 旧标定缺少采样倍率，请重新标定").format(objective=self._current_objective)
+        elif scale is None:
             text = self._tr("{objective}: 未标定").format(objective=self._current_objective)
         else:
             text = self._tr("{objective}: {value:.4g} um/pixel").format(
                 objective=self._current_objective,
-                value=calibration.um_per_pixel,
+                value=scale,
             )
         if "cameraScaleStatusLabel" in self.controls:
             self.controls["cameraScaleStatusLabel"].setText(text)

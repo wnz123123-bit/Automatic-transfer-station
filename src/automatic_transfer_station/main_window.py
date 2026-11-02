@@ -761,6 +761,7 @@ class MainWindow(QMainWindow):
     # the close path must give the disconnect worker a deterministic chance to
     # finish, while still bounding the wait so a wedged serial driver cannot hang
     # close forever.
+    MOTION_CLOSE_TIMEOUT_MS = 2000
     HEATER_OFF_CLOSE_TIMEOUT_MS = 3000
 
     # CP1 — reactive motion-safety scan backstop.
@@ -1705,7 +1706,7 @@ class MainWindow(QMainWindow):
         thread, the blocking DLL action runs on a worker thread (buttons disabled,
         watchdog armed), and the finish/status/error handling runs back on the GUI
         thread when the worker reports."""
-        if self._board_action_in_flight:
+        if self._closing or self._board_action_in_flight:
             return
         if kind in ("reset", "close"):
             self._axis9_home_generation += 1
@@ -2701,6 +2702,8 @@ class MainWindow(QMainWindow):
         priority: int = 10,
         on_success: Callable[[object], None] | None = None,
     ) -> bool:
+        if self._closing:
+            return False
         queue = self._active_motion_queue()
         if queue is None:
             self.statusBar().showMessage(tr("运动控制未打开，命令已忽略"))
@@ -3124,6 +3127,8 @@ class MainWindow(QMainWindow):
         # queued 100 ms timeout firing during the teardown below (which spins the
         # event loop via processEvents) cannot enqueue a position_refresh that
         # races queue shutdown.
+        if self._closing:
+            return
         self._closing = True
         timer = getattr(self, "timer", None)
         if timer is not None:
@@ -3136,6 +3141,53 @@ class MainWindow(QMainWindow):
         panel = getattr(self, "gamepad_panel", None)
         if panel is not None:
             panel._timer.stop()
+        temperature_panel = getattr(self, "temperature_panel", None)
+        if temperature_panel is not None:
+            # Start verified heater-off before waiting for motion or optical devices.
+            if hasattr(temperature_panel, "prepare_for_close"):
+                temperature_panel.prepare_for_close(timeout_ms=0)
+            try:
+                temperature_panel.disconnect_from_device()
+            except Exception as exc:
+                _audit.exception("RD105 disconnect could not start during exit")
+                self.statusBar().showMessage(str(exc))
+        if self._board_action_watchdog is not None:
+            self._board_action_watchdog.stop()
+            self._board_action_watchdog = None
+        self._board_action_generation += 1
+        self._board_action_in_flight = False
+        board_executor = self._board_action_executor
+        motion_queue = self._motion_command_queue
+        if motion_queue is not None:
+            self._position_refresh_generation += 1
+            self._position_refresh_pending = False
+            motion_queue.shutdown(timeout=0)
+            self._motion_command_callbacks.clear()
+        controller = self.controller
+
+        def finish_motion():
+            if motion_queue is not None:
+                motion_queue.shutdown(timeout=None)
+            # A late board-open must finish before we decide whether to close it.
+            while board_executor.is_busy():
+                board_executor.wait_for_idle()
+            if controller.is_open:
+                for action in (controller.stop_all, controller.close_board):
+                    try:
+                        action()
+                    except Exception:
+                        _audit.exception("Motion shutdown failed in %r", action)
+
+        motion_cleanup = threading.Thread(target=finish_motion, name="ATSMotionClose", daemon=True)
+        motion_cleanup.start()
+        motion_cleanup.join(self.MOTION_CLOSE_TIMEOUT_MS / 1000)
+        if motion_cleanup.is_alive():
+            _audit.critical("Motion stop/close unconfirmed at shutdown deadline")
+        if temperature_panel is not None and hasattr(temperature_panel, "prepare_for_close"):
+            idle = temperature_panel.prepare_for_close(timeout_ms=self.HEATER_OFF_CLOSE_TIMEOUT_MS)
+            heater = getattr(temperature_panel, "controller", None)
+            if idle is False or getattr(heater, "disconnect_disable_failed", False):
+                _audit.critical("RD105 heater-off unconfirmed during exit: %s", getattr(heater, "last_error", ""))
         objective_panel = getattr(self, "objective_panel", None)
         objective_idle = True
         if objective_panel is not None:
@@ -3158,51 +3210,8 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(str(exc))
         camera_window = getattr(self, "camera_window", None)
         if camera_window is not None and hasattr(camera_window, "close_after_prepare"):
-            camera_window.close_after_prepare(timeout_ms=2000)
-        temperature_panel = getattr(self, "temperature_panel", None)
-        if temperature_panel is not None:
-            # First, mark the panel closing and immediately detach any in-flight
-            # poll worker (don't wait on a possibly-stuck read). Then submit the
-            # controller disconnect (heater-off / ENABLE=0) on a worker, and give
-            # it a BOUNDED wait to actually complete before the process exits — the
-            # RD105 keeps heating if the PC exits without ENABLE=0, so this best-
-            # effort-with-a-real-chance shutdown matters. A wedged serial driver is
-            # capped by HEATER_OFF_CLOSE_TIMEOUT_MS and then detached, so close
-            # still cannot hang forever.
-            if hasattr(temperature_panel, "prepare_for_close"):
-                temperature_panel.prepare_for_close(timeout_ms=0)
-            try:
-                temperature_panel.disconnect_from_device()
-                if hasattr(temperature_panel, "prepare_for_close"):
-                    temperature_panel.prepare_for_close(timeout_ms=self.HEATER_OFF_CLOSE_TIMEOUT_MS)
-            except Exception as exc:
-                self.statusBar().showMessage(str(exc))
-        # Join any in-flight threaded board open/close/reset worker. wait_for_idle
-        # has its own deadline so a wedged DLL call cannot freeze window close
-        # forever. Stop the watchdog too.
-        if getattr(self, "_board_action_watchdog", None) is not None:
-            self._board_action_watchdog.stop()
-            self._board_action_watchdog = None
-        self._board_action_generation += 1
-        board_executor = getattr(self, "_board_action_executor", None)
-        if board_executor is not None and hasattr(board_executor, "wait_for_idle"):
-            board_executor.wait_for_idle()
-        self._board_action_in_flight = False
-        motion_queue = getattr(self, "_motion_command_queue", None)
-        if motion_queue is not None:
-            self._position_refresh_generation += 1
-            if motion_queue.shutdown(timeout=2.0):
-                self._motion_command_queue = None
-                self._motion_command_callbacks.clear()
-            else:
-                self.statusBar().showMessage(tr("连续运动命令仍在执行，窗口关闭时未能完全停止队列"))
-            self._position_refresh_pending = False
-        if self.controller.is_open:
-            try:
-                self.controller.stop_all()
-                self.controller.close_board()
-            except MotionControllerError as exc:
-                self.statusBar().showMessage(str(exc))
+            if not camera_window.close_after_prepare(timeout_ms=2000):
+                _audit.warning("Camera close unconfirmed at shutdown deadline")
 
     def _request_exit(self) -> None:
         """The only sanctioned way to quit: confirm, then close (which runs the

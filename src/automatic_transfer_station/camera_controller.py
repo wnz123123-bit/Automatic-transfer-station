@@ -30,6 +30,7 @@ class CameraFrame:
     height: int
     rgb_bytes: bytes
     metadata: dict[str, object] = field(default_factory=dict)
+    binning: int | None = 1
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,7 @@ class PypylonCameraHandle:
     def __init__(self, pylon, camera):
         self._pylon = pylon
         self._camera = camera
+        self._binning: int | None = None
         self._converter = pylon.ImageFormatConverter()
         self._converter.OutputPixelFormat = pylon.PixelType_RGB8packed
         self._converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
@@ -373,6 +375,7 @@ class PypylonCameraHandle:
                 width=int(result.Width),
                 height=int(result.Height),
                 rgb_bytes=rgb_bytes,
+                binning=self._binning,
                 metadata={
                     "pixel_type": int(result.PixelType),
                     "serial_number": self._camera.GetDeviceInfo().GetSerialNumber(),
@@ -426,6 +429,11 @@ class PypylonCameraHandle:
             self._set_feature_if_available("SharpnessEnhancement", float(sharpness))
 
     def _prepare_free_run_acquisition(self) -> None:
+        # Read the applied mode once per acquisition. Some cameras ignore binning
+        # writes or crop the ROI, so image width alone cannot establish scale.
+        horizontal = self._binning_factor("BinningHorizontal")
+        vertical = self._binning_factor("BinningVertical")
+        self._binning = horizontal if horizontal == vertical else None
         self._set_feature_if_present("AcquisitionMode", "Continuous")
         for selector in self._feature_symbolics("TriggerSelector", fallback=("FrameStart",)):
             self._set_feature_if_present("TriggerSelector", selector)
@@ -497,6 +505,19 @@ class PypylonCameraHandle:
         except Exception:
             inc = None
         return FeatureRange(float(minimum) * scale, float(maximum) * scale, None if inc is None else float(inc) * scale)
+
+    def _binning_factor(self, name: str) -> int | None:
+        value = self._int_value(name)
+        if value is not None:
+            return value if value > 0 else None
+        # A camera with no such feature has fixed 1x sampling on this axis.
+        # A feature that exists but could not be read is an unknown mode.
+        try:
+            if self._camera.GetNodeMap().GetNode(name) is None:
+                return 1
+        except Exception:
+            pass
+        return None
 
     def _int_value(self, name: str) -> int | None:
         try:

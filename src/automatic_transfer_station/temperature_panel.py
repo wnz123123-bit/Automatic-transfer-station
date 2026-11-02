@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import time
+from threading import Event
 from collections import deque
 from collections.abc import Callable
 
@@ -338,6 +339,7 @@ class TemperaturePanel(QWidget):
         # into a half-destroyed widget tree (mirrors objective_panel pattern).
         self._closing = False
         self._poll_in_flight = False
+        self._connect_done: Event | None = None
         self._disconnect_in_flight = False
         # BP2 panel side: timestamp when _poll_in_flight was set, so a later timer
         # tick can detect a STUCK poll (a read that never returned) and treat it as
@@ -654,21 +656,37 @@ class TemperaturePanel(QWidget):
             self.connect_to_device()
 
     def connect_to_device(self) -> bool:
+        if self._closing or self._connect_done is not None:
+            return False
         if self._disconnect_in_flight:
             self._set_status(self._tr("RD105 正在断开连接，请稍候"))
             return False
         port = self.controls["tempPortCombo"].currentText().strip() or DEFAULT_TEMPERATURE_CONTROLLER_PORT
         controller = self.controller_factory(port)
         self.controller = controller
-        self._set_status(self._tr("RD105 正在连接：{port}").format(port=port), flush=True)
+        connected = self._connect_done = Event()
+        self._set_status(self._tr("RD105 正在连接：{port}").format(port=port))
+
+        def connect():
+            try:
+                return controller.connect()
+            finally:
+                connected.set()
+
+        def finish(success):
+            if self._connect_done is connected:
+                self._connect_done = None
+                if not self._slots_disabled():
+                    self._handle_connect_result(port, success)
+
         # Blocking serial connect runs off the GUI thread (#6/I5); the click
         # returns immediately and the result lands in the slots below.
         self._connect_result = False
         self._serial_executor.submit(
             "connect",
-            controller.connect,
-            lambda kind, result: self._handle_connect_result(port, result),
-            lambda kind, message: self._handle_connect_result(port, False),
+            connect,
+            lambda kind, result: finish(result),
+            lambda kind, message: finish(False),
         )
         return self._connect_result
 
@@ -718,7 +736,7 @@ class TemperaturePanel(QWidget):
         # cannot delete a live QThread (std::terminate safety net).
         if hasattr(executor, "detach_running_threads"):
             executor.detach_running_threads()
-            if getattr(executor, "_detached_threads", None):
+            if any(thread.isRunning() for thread in getattr(executor, "_detached_threads", ())):
                 all_idle = False
         return all_idle
 
@@ -737,13 +755,21 @@ class TemperaturePanel(QWidget):
         if self._disconnect_in_flight:
             return
         self._disconnect_in_flight = True
+        connecting, self._connect_done = self._connect_done, None
+
+        def disconnect():
+            # An already submitted open must not resurrect the port after exit.
+            if connecting is not None:
+                connecting.wait()
+            controller.disconnect()
+
         if not self._slots_disabled():
             self.controls["tempConnect"].setEnabled(False)
             self.controls["tempConnectionLabel"].setText(self._tr("正在断开"))
             self._set_status(self._tr("RD105 正在断开连接（先关闭输出）"))
         self._serial_executor.submit(
             "disconnect",
-            controller.disconnect,
+            disconnect,
             lambda kind, _result: self._handle_disconnect_result(controller),
             lambda kind, message: self._handle_disconnect_failure(controller, message),
         )
