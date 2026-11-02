@@ -62,6 +62,19 @@ def _api_locked(method):
     return wrapper
 
 
+class Axis9HomeJob:
+    """One homing attempt. poll() executes at most one short, serialized card transaction."""
+    def __init__(self, controller, generation):
+        self.controller = controller
+        self.generation = generation
+        self.phase = "start"
+        self.deadline = 0.0
+
+    def poll(self) -> float | None:
+        """Return the switch pulse on success, None while moving; raise on cancellation/fault."""
+        return self.controller._poll_axis9_home(self)
+
+
 class GasMotionController:
     def __init__(
         self,
@@ -84,6 +97,8 @@ class GasMotionController:
         self.is_open = False
         self.axis_calibrations = dict(AXIS_CALIBRATIONS)
         self._api_lock = threading.RLock()
+        self._home_generation = 0
+        self._home_owner: Axis9HomeJob | None = None
 
     def _check(self, result: int, action: str) -> None:
         if result != 0:
@@ -199,6 +214,7 @@ class GasMotionController:
 
     @_api_locked
     def close_board(self) -> None:
+        self._invalidate_home()
         if not self.is_open:
             return
         self._step_targets.clear()
@@ -218,6 +234,7 @@ class GasMotionController:
 
     @_api_locked
     def reset_board(self) -> None:
+        self._invalidate_home()
         self._require_open()
         self._step_targets.clear()
         self._check(self.api.reset(), "GA_Reset")
@@ -233,6 +250,7 @@ class GasMotionController:
 
     @_api_locked
     def relative_move(self, axis: int, direction: int, speed: float, step: float) -> None:
+        self._guard_axis9_owner(axis)
         self._require_open()
         axis = int(axis)
         direction = 1 if direction > 0 else -1
@@ -269,6 +287,7 @@ class GasMotionController:
 
     @_api_locked
     def move_axis_to_coordinate(self, axis: int, coordinate: float, speed: float | None = None) -> None:
+        self._guard_axis9_owner(axis)
         self._require_open()
         axis = int(axis)
         self._clear_step_target(axis)  # an absolute move ends step accumulation on this axis
@@ -293,6 +312,7 @@ class GasMotionController:
 
     @_api_locked
     def start_jog(self, axis: int, speed: float, partner_lookahead_pulse: float = 0.0) -> None:
+        self._guard_axis9_owner(axis)
         self._require_open()
         self._clear_step_target(axis)  # a continuous jog ends step accumulation on this axis
         direction = 1 if speed > 0 else -1
@@ -350,12 +370,15 @@ class GasMotionController:
 
     @_api_locked
     def stop_axis(self, axis: int) -> None:
+        if axis == AXIS9_NUM:
+            self._invalidate_home()
         self._require_open()
         self._clear_step_target(axis)
         self._check(self.api.stop(axis_mask(axis), 0), f"GA_Stop({axis})")
 
     @_api_locked
     def stop_all(self) -> None:
+        self._invalidate_home()
         self._require_open()
         self._step_targets.clear()
         self._check(self.api.stop(0xFFFF, 0), "GA_Stop(all)")
@@ -410,21 +433,75 @@ class GasMotionController:
         self._check(self.api.set_position(axis, target), "GA_SetPos(3)")
         self._check(self.api.update(axis_mask(axis)), "GA_Update(3)")
 
-    @_api_locked
+    def new_axis9_home_job(self) -> Axis9HomeJob:
+        return Axis9HomeJob(self, self._home_generation)
+
     def home_axis9(self) -> None:
+        job = self.new_axis9_home_job()
+        while job.poll() is None:
+            time.sleep(0.02)
+
+    def _invalidate_home(self) -> None:
+        self._home_generation += 1
+        self._home_owner = None
+
+    def _guard_axis9_owner(self, axis: int) -> None:
+        if axis == AXIS9_NUM and self._home_owner is not None:
+            raise MotionControllerError(tr("R 轴正在回零"))
+
+    @_api_locked
+    def _poll_axis9_home(self, job: Axis9HomeJob) -> float | None:
         self._require_open()
-        current_angle = self.get_axis9_angle()
-        self._assert_axis9_home_start_in_global_range(current_angle)
-        if self._axis9_zero_switch_active():
-            return
-        self._move_axis9_to_home_search_start(current_angle)
-        if self._axis9_zero_switch_active():
-            return
-        if self._scan_axis9_until_zero_switch(AXIS9_HOME_SEARCH_MAX_DEGREES, AXIS9_HOME_SEARCH_MIN_DEGREES):
-            return
-        raise MotionControllerError(
-            tr("R 轴回零未完成：在 -10..10 deg 范围内未检测到 card0 IO8 零位开关，当前位置未设为 0 deg")
-        )
+        if job.generation != self._home_generation:
+            raise MotionControllerError(tr("R 轴回零已取消"))
+        if self._home_owner is not None and self._home_owner is not job:
+            raise MotionControllerError(tr("R 轴正在回零"))
+        try:
+            if job.phase == "start":
+                angle = self.get_axis9_angle()
+                self._assert_axis9_home_start_in_global_range(angle)
+                if self._axis9_zero_switch_active():
+                    return self._get_prf_pos(AXIS9_NUM)
+                self._home_owner = job
+                job.phase = "preposition"
+                self._move_axis9_angle_locked(AXIS9_HOME_SEARCH_MIN_DEGREES,
+                    self._axis9_home_velocity(AXIS9_HOME_PREPOSITION_SPEED_DEG_S))
+                job.deadline = (time.monotonic() + AXIS9_HOME_PREPOSITION_TIMEOUT_MARGIN_S
+                    + abs(angle - AXIS9_HOME_SEARCH_MIN_DEGREES) / AXIS9_HOME_PREPOSITION_SPEED_DEG_S)
+                return None
+
+            if job.phase == "scan" and self._axis9_zero_switch_active():
+                self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
+                job.phase = "stopping"
+                job.deadline = time.monotonic() + AXIS9_HOME_IO_SEARCH_TIMEOUT_MARGIN_S
+
+            status = self.api.get_status(AXIS9_NUM)
+            arrived = status & AXIS_STATUS_ARRIVE and not status & AXIS_STATUS_RUNNING
+            if (job.phase == "stopping" and not status & AXIS_STATUS_RUNNING) or arrived:
+                if job.phase == "stopping" or self._axis9_zero_switch_active():
+                    pulse = self._get_prf_pos(AXIS9_NUM)
+                    self._home_owner = None
+                    return pulse
+                if job.phase == "preposition":
+                    job.phase = "scan"
+                    self._move_axis9_angle_locked(AXIS9_HOME_SEARCH_MAX_DEGREES,
+                        self._axis9_home_velocity(AXIS9_HOME_IO_SEARCH_SPEED_DEG_S))
+                    job.deadline = (time.monotonic() + AXIS9_HOME_IO_SEARCH_TIMEOUT_MARGIN_S
+                        + (AXIS9_HOME_SEARCH_MAX_DEGREES - AXIS9_HOME_SEARCH_MIN_DEGREES)
+                        / AXIS9_HOME_IO_SEARCH_SPEED_DEG_S)
+                    return None
+                raise MotionControllerError(tr("R 轴回零未完成：在 -10..10 deg 范围内未检测到 card0 IO8 零位开关，当前位置未设为 0 deg"))
+            if time.monotonic() >= job.deadline:
+                raise MotionControllerError(tr("R 轴回零等待超时"))
+            return None
+        except Exception as fault:
+            if self._home_owner is job:
+                self._invalidate_home()
+                try:
+                    self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
+                except Exception as stop_fault:
+                    raise MotionControllerError(f"{fault}; GA_Stop(9): {stop_fault}") from fault
+            raise
 
     def _assert_axis9_home_start_in_global_range(self, current_angle: float) -> None:
         if current_angle < AXIS9_MIN_DEGREES or current_angle > AXIS9_MAX_DEGREES:
@@ -445,63 +522,12 @@ class GasMotionController:
         value = self.api.get_ext_di_bit(AXIS9_ZERO_SWITCH_CARD_INDEX, AXIS9_ZERO_SWITCH_IO_INDEX)
         return int(value) == AXIS9_ZERO_SWITCH_ACTIVE_VALUE
 
-    def _move_axis9_to_home_search_start(self, current_angle: float) -> None:
-        self.move_axis9_to_angle(
-            AXIS9_HOME_SEARCH_MIN_DEGREES,
-            speed=self._axis9_home_velocity(AXIS9_HOME_PREPOSITION_SPEED_DEG_S),
-        )
-        self._wait_axis_arrive(
-            AXIS9_NUM,
-            self._axis9_home_preposition_timeout(current_angle),
-            timeout_message=tr("R 轴回零未完成：无法移动到 -10 deg 搜索起点"),
-        )
-
-    def _axis9_home_preposition_timeout(self, current_angle: float) -> float:
-        travel_s = abs(float(current_angle) - AXIS9_HOME_SEARCH_MIN_DEGREES) / AXIS9_HOME_PREPOSITION_SPEED_DEG_S
-        return travel_s + AXIS9_HOME_PREPOSITION_TIMEOUT_MARGIN_S
-
-    def _scan_axis9_until_zero_switch(self, target_angle: float, start_angle: float) -> bool:
-        self.move_axis9_to_angle(
-            target_angle,
-            speed=self._axis9_home_velocity(AXIS9_HOME_IO_SEARCH_SPEED_DEG_S),
-        )
-        return self._wait_axis9_zero_switch_or_arrive(
-            self._axis9_home_io_search_timeout(start_angle, target_angle)
-        )
-
-    def _axis9_home_io_search_timeout(self, start_angle: float, target_angle: float) -> float:
-        travel_s = abs(float(target_angle) - float(start_angle)) / AXIS9_HOME_IO_SEARCH_SPEED_DEG_S
-        return travel_s + AXIS9_HOME_IO_SEARCH_TIMEOUT_MARGIN_S
-
-    def _wait_axis9_zero_switch_or_arrive(self, timeout_s: float) -> bool:
-        deadline = time.monotonic() + float(timeout_s)
-        while True:
-            if self._axis9_zero_switch_active():
-                self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
-                return True
-            status = self.api.get_status(AXIS9_NUM)
-            if (status & AXIS_STATUS_ARRIVE) and not (status & AXIS_STATUS_RUNNING):
-                return self._axis9_zero_switch_active()
-            if time.monotonic() >= deadline:
-                self._check(self.api.stop(axis_mask(AXIS9_NUM), 0), "GA_Stop(9)")
-                raise MotionControllerError(
-                    tr("R 轴回零未完成：在 -10..10 deg 范围内未检测到 card0 IO8 零位开关")
-                )
-            time.sleep(0.02)
-
-    def _wait_axis_arrive(self, axis: int, timeout_s: float, timeout_message: str | None = None) -> int:
-        deadline = time.monotonic() + float(timeout_s)
-        while True:
-            status = self.api.get_status(axis)
-            if (status & AXIS_STATUS_ARRIVE) and not (status & AXIS_STATUS_RUNNING):
-                return int(status)
-            if time.monotonic() >= deadline:
-                self._check(self.api.stop(axis_mask(axis), 0), f"GA_Stop({axis})")
-                raise MotionControllerError(timeout_message or f"axis {axis} did not arrive before timeout")
-            time.sleep(0.02)
-
     @_api_locked
     def move_axis9_to_angle(self, angle: float, speed: float | None = None) -> None:
+        self._guard_axis9_owner(AXIS9_NUM)
+        self._move_axis9_angle_locked(angle, speed)
+
+    def _move_axis9_angle_locked(self, angle: float, speed: float | None) -> None:
         self._require_open()
         if angle < AXIS9_MIN_DEGREES or angle > AXIS9_MAX_DEGREES:
             raise MotionControllerError(

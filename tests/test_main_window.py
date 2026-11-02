@@ -2309,6 +2309,41 @@ class Package6SafetyAffordanceTests(unittest.TestCase):
         self.assertTrue(self.runtime_calibration_path.exists())
         self.assertEqual("4.250", window.controls["axisPositionX3"].text())
 
+    def test_home_poll_yields_to_stop_and_never_calibrates_after_cancel(self):
+        from test_gas_controller import FakeApi
+        from automatic_transfer_station.gas_controller import GasMotionController
+        from automatic_transfer_station.main_window import MainWindow
+        from unittest.mock import Mock
+        app = get_app()
+        api = FakeApi()
+        ctl = GasMotionController(api)
+        ctl.is_open = True
+        window = MainWindow(controller=ctl, motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+                            position_store_path=self.position_store_path)
+        window.timer.stop()
+        window._confirm = lambda *args: True
+        window._record_axis9_home_zero = Mock()
+        try:
+            window._home_axis9()
+            self.assertIn(("update", 1 << 8), api.calls)
+            queued = []
+            submit = window._run_or_queue_motion_command
+            window._run_or_queue_motion_command = lambda command, **kwargs: queued.append(command)
+            from PySide6.QtTest import QTest
+            QTest.qWait(60)
+            window._run_or_queue_motion_command = submit
+            self.assertEqual(len(queued), 1)
+            window._stop_all_motion()
+            self.assertIsNone(queued[0]())
+            api.ext_di_bits[(0, 8)] = 1
+            QTest.qWait(60)
+            app.processEvents()
+            window._record_axis9_home_zero.assert_not_called()
+            self.assertIn(("stop", 0xFFFF, 0), api.calls)
+            self.assertNotIn(("set_position", 9, 41667), api.calls)
+        finally:
+            window.close()
+
     def test_home_axis9_confirm_false_does_not_call_controller(self):
         from automatic_transfer_station.main_window import MainWindow
         get_app()

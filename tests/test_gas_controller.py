@@ -620,6 +620,46 @@ class GasMotionControllerTests(unittest.TestCase):
                 self.assertIn(("set_position", 9, 41667), api.calls)
                 self.assertNotIn(("home_start", 9), api.calls)
 
+    def test_stop_all_interrupts_each_homing_phase_and_prevents_resume(self):
+        from automatic_transfer_station.gas_controller import GasMotionController, MotionControllerError
+        for scan in (False, True):
+            with self.subTest(scan=scan):
+                api = FakeApi()
+                ctl = GasMotionController(api)
+                ctl.is_open = True
+                job = ctl.new_axis9_home_job()
+                self.assertIsNone(job.poll())
+                if scan:
+                    api.statuses[9] = 0x800
+                    self.assertIsNone(job.poll())
+                ctl.stop_all()
+                commands = list(api.calls)
+                with self.assertRaises(MotionControllerError):
+                    job.poll()
+                self.assertEqual(api.calls, commands)
+                self.assertEqual(commands[-1], ("stop", 0xFFFF, 0))
+
+    def test_homing_read_fault_stops_axis_and_reports_secondary_fault(self):
+        from automatic_transfer_station.gas_controller import GasMotionController
+        from unittest.mock import Mock
+        for phase, stop_fails in (("preposition", False), ("scan", True)):
+            with self.subTest(phase=phase):
+                api = FakeApi()
+                ctl = GasMotionController(api)
+                ctl.is_open = True
+                job = ctl.new_axis9_home_job()
+                job.poll()
+                if phase == "scan":
+                    api.statuses[9] = 0x800
+                    job.poll()
+                    api.get_ext_di_bit = Mock(side_effect=RuntimeError("IO8 read"))
+                else:
+                    api.get_status = Mock(side_effect=RuntimeError("status read"))
+                api.stop = Mock(return_value=-7 if stop_fails else 0)
+                with self.assertRaisesRegex(RuntimeError, "IO8 read.*GA_Stop" if stop_fails else "status read"):
+                    job.poll()
+                api.stop.assert_called_once_with(1 << 8, 0)
+
     def test_axis9_home_accepts_displayed_ten_degree_boundary(self):
         from automatic_transfer_station.controller_base import AXIS9_DEGREES_PER_PULSE
         from automatic_transfer_station.gas_controller import GasMotionController

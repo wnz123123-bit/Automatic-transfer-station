@@ -819,6 +819,7 @@ class MainWindow(QMainWindow):
             app.setFont(QFont("Microsoft YaHei", 9))
         self.controller = controller
         self.nosepiece_controller = nosepiece_controller or DisabledNosepieceController()
+        self._axis9_home_generation = 0
         self.controls = {}
         from .i18n import translator, Retranslator
         self._translator = translator
@@ -1598,6 +1599,7 @@ class MainWindow(QMainWindow):
         self._set_motion_status(tr("运动控制已打开"), "on")
 
     def _close_motion_control(self) -> None:
+        self._axis9_home_generation += 1
         self._close_motion_control_prepare()
         self._close_motion_control_close_board()
 
@@ -1705,6 +1707,8 @@ class MainWindow(QMainWindow):
         thread when the worker reports."""
         if self._board_action_in_flight:
             return
+        if kind in ("reset", "close"):
+            self._axis9_home_generation += 1
         spec = self._board_action_spec(kind)
         prepare = spec["prepare"]
         if prepare is not None:
@@ -1828,6 +1832,7 @@ class MainWindow(QMainWindow):
         #
         # DO NOT "unify" these two paths: the queue-based path is correct for the
         # main thread; the direct path is correct for the gamepad context.
+        self._axis9_home_generation += 1
         _audit.info("emergency stop all motion invoked (GUI button / Space key)")
         queue = self._motion_command_queue
         if queue is not None:
@@ -2546,6 +2551,7 @@ class MainWindow(QMainWindow):
         # BACK/停止 means "everything stops": cancel any discrete jog/relative moves
         # already queued (priority 10, no epoch guard) BEFORE issuing the stop, so
         # they cannot execute on the board after the hardware has been halted.
+        self._axis9_home_generation += 1
         _audit.info("gamepad emergency stop all motion invoked")
         queue = self._motion_command_queue
         if queue is not None:
@@ -2638,6 +2644,8 @@ class MainWindow(QMainWindow):
         )
 
     def _stop_axis(self, axis: int) -> None:
+        if axis == AXIS9_NUM:
+            self._axis9_home_generation += 1
         self._run_or_queue_motion_command(
             lambda: self.controller.stop_axis(axis),
             record_positions=False,
@@ -2773,13 +2781,38 @@ class MainWindow(QMainWindow):
             tr("R 轴将执行物理回零（归零行程），请确认样品和机械处于安全位置。\n\n确定执行？"),
         ):
             return
+        new_job = getattr(self.controller, "new_axis9_home_job", None)
+        if new_job is not None:
+            job = new_job()
+            generation = self._axis9_home_generation
+
+            def guarded_poll():
+                if not self._closing and generation == self._axis9_home_generation:
+                    return job.poll()
+                return None
+
+            def poll():
+                if not self._closing and generation == self._axis9_home_generation:
+                    self._run_or_queue_motion_command(guarded_poll, on_success=advance, record_positions=False,
+                                                      priority=2)
+
+            def advance(pulse):
+                if generation != self._axis9_home_generation or self._closing:
+                    return
+                if pulse is None:
+                    QTimer.singleShot(20, self, poll)
+                else:
+                    self._record_axis9_home_zero(pulse)
+
+            poll()
+            return
         self._run_or_queue_motion_command(
             self.controller.home_axis9,
             on_success=self._record_axis9_home_zero,
         )
 
-    def _record_axis9_home_zero(self, _result: object = None) -> None:
-        current_pulse = float(self.controller.get_axis_position(AXIS9_NUM))
+    def _record_axis9_home_zero(self, pulse: float | None = None) -> None:
+        current_pulse = float(self.controller.get_axis_position(AXIS9_NUM) if pulse is None else pulse)
         self.runtime_calibration_store.calibrate_axis_at_pulse(AXIS9_NUM, current_pulse, 0.0)
         self._refresh_axis_calibration_mapping()
         self.position_store.update_axis(
@@ -2942,6 +2975,7 @@ class MainWindow(QMainWindow):
         at priority 0 so it is dispatched ahead of anything queued concurrently; it
         cannot, however, preempt a worker already wedged in a blocking DLL call
         (see _on_position_refresh_watchdog_timeout for the residual limitation)."""
+        self._axis9_home_generation += 1
         queue = self._active_motion_queue()
         if queue is not None:
             queue.submit(self.controller.stop_all, priority=0)
