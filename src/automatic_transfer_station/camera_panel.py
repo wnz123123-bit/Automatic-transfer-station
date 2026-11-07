@@ -367,6 +367,11 @@ class CameraPanel(QWidget):
             self.controller = self.controller_factory()
         return self.controller
 
+    def _translated_label(self, source: str) -> QLabel:
+        label = QLabel()
+        self._rt.text(label, source)
+        return label
+
     def _build_ui(self) -> None:
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -386,27 +391,32 @@ class CameraPanel(QWidget):
         preview_layout.setContentsMargins(12, 12, 12, 12)
         preview_layout.setSpacing(8)
 
-        header = QHBoxLayout()
+        header = QGridLayout()
         title = self._register("cameraTitleLabel", QLabel())
         self._rt.text(title, "相机预览")
         title.setStyleSheet("color:#d8e2ee;font-size:16px;font-weight:800;")
-        header.addWidget(title)
-        header.addStretch(1)
+        header.addWidget(title, 0, 0, 1, 2)
         fps_label = self._register("cameraFpsLabel", QLabel(self._preview_fps_text()))
         fps_label.setProperty("readout", True)
-        header.addWidget(fps_label)
+        fps_label.setWordWrap(True)
+        header.addWidget(fps_label, 1, 0)
         zoom_label = self._register("cameraZoomLabel", QLabel(self._image_zoom_text()))
         zoom_label.setProperty("readout", True)
-        zoom_label.setToolTip(self._tr("鼠标滚轮缩放预览图像"))
-        header.addWidget(zoom_label)
-        device_label = self._register("cameraDeviceLabel", QLabel(self._tr("相机: 未连接")))
+        zoom_label.setWordWrap(True)
+        self._rt.tooltip(zoom_label, "鼠标滚轮缩放预览图像")
+        header.addWidget(zoom_label, 1, 1)
+        device_label = self._register("cameraDeviceLabel", QLabel())
+        self._rt.message(device_label, "相机: 未连接")
         device_label.setProperty("readout", True)
-        header.addWidget(device_label)
+        device_label.setWordWrap(True)
+        header.addWidget(device_label, 2, 0, 1, 2)
+        header.setColumnStretch(0, 1)
+        header.setColumnStretch(1, 1)
         preview_layout.addLayout(header)
 
         image = self._register("cameraImageLabel", CameraImageLabel(self._tr("无图像")))
         image.setAlignment(Qt.AlignCenter)
-        image.setMinimumSize(520, 420)
+        image.setMinimumSize(280, 240)
         image.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         image.setFrameShape(QFrame.NoFrame)
         image.setStyleSheet(
@@ -418,8 +428,9 @@ class CameraPanel(QWidget):
         image.zoom_delta_requested.connect(self._adjust_image_zoom)
         preview_layout.addWidget(image, 1)
 
-        overlay = self._register("cameraOverlayStatusLabel", QLabel(self._tr("未标定")))
+        overlay = self._register("cameraOverlayStatusLabel", QLabel())
         overlay.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        overlay.setWordWrap(True)
         overlay.setStyleSheet("color:#b6c6d8;font-weight:700;")
         preview_layout.addWidget(overlay)
 
@@ -432,7 +443,7 @@ class CameraPanel(QWidget):
         control_scroll = self._register("cameraControlScroll", QScrollArea())
         control_scroll.setWidgetResizable(True)
         control_scroll.setFrameShape(QFrame.NoFrame)
-        control_scroll.setMinimumWidth(330)
+        control_scroll.setMinimumWidth(360)
         control_scroll.setMaximumWidth(420)
         control_pane = self._register("cameraControlPane", QWidget())
         control_layout = QVBoxLayout(control_pane)
@@ -440,11 +451,12 @@ class CameraPanel(QWidget):
         control_layout.setSpacing(8)
         control_scroll.setWidget(control_pane)
 
-        acquire_group = self._register("cameraAcquireGroup", QGroupBox(self._tr("采集")))
+        acquire_group = self._register("cameraAcquireGroup", QGroupBox())
+        self._rt.title(acquire_group, "采集")
         acquire_layout = QGridLayout(acquire_group)
         preview = self._register("cameraPreview", QPushButton())
         snapshot = self._register("cameraSnapshot", QPushButton())
-        self._rt.text(preview, "预览")
+        self._rt.custom(lambda: preview.setText(self._tr("停止预览" if self._preview_thread else "预览")))
         self._rt.text(snapshot, "拍照")
         preview.clicked.connect(self.toggle_preview)
         snapshot.clicked.connect(self.take_snapshot)
@@ -452,10 +464,12 @@ class CameraPanel(QWidget):
         acquire_layout.addWidget(snapshot, 0, 1)
         control_layout.addWidget(acquire_group)
 
-        save_group = self._register("cameraSaveGroup", QGroupBox(self._tr("保存")))
+        save_group = self._register("cameraSaveGroup", QGroupBox())
+        self._rt.title(save_group, "保存")
         save_layout = QGridLayout(save_group)
         save_dir = self._register("cameraSaveDirEdit", QLineEdit(str(self.snapshot_dir)))
-        browse = self._register("cameraBrowseSaveDir", QPushButton(self._tr("浏览")))
+        browse = self._register("cameraBrowseSaveDir", QPushButton())
+        self._rt.text(browse, "浏览")
         template = self._register("cameraSaveTemplateEdit", QLineEdit(self.settings.filename_template or DEFAULT_FILENAME_TEMPLATE))
         fmt = self._register("cameraFormatCombo", QComboBox())
         fmt.addItems(["TIFF", "PNG", "JPG"])
@@ -464,27 +478,29 @@ class CameraPanel(QWidget):
         quality.setRange(1, 100)
         quality.setValue(int(self.settings.jpeg_quality))
         browse.clicked.connect(self.browse_save_dir)
-        save_layout.addWidget(QLabel(self._tr("目录")), 0, 0)
+        save_layout.addWidget(self._translated_label("目录"), 0, 0)
         save_layout.addWidget(save_dir, 0, 1)
         save_layout.addWidget(browse, 0, 2)
-        save_layout.addWidget(QLabel(self._tr("文件名")), 1, 0)
+        save_layout.addWidget(self._translated_label("文件名"), 1, 0)
         save_layout.addWidget(template, 1, 1, 1, 2)
-        save_layout.addWidget(QLabel(self._tr("格式")), 2, 0)
+        save_layout.addWidget(self._translated_label("格式"), 2, 0)
         save_layout.addWidget(fmt, 2, 1)
         save_layout.addWidget(quality, 2, 2)
         control_layout.addWidget(save_group)
 
-        quality_group = self._register("cameraQualityGroup", QGroupBox(self._tr("清晰度")))
+        quality_group = self._register("cameraQualityGroup", QGroupBox())
+        self._rt.title(quality_group, "清晰度")
         quality_layout = QFormLayout(quality_group)
         live_resolution = self._register("cameraLiveResolutionCombo", QComboBox())
         snap_resolution = self._register("cameraSnapResolutionCombo", QComboBox())
         self._populate_resolution_combos()
         live_resolution.currentTextChanged.connect(lambda _text: self._clear_measurements_for_coordinate_change())
-        quality_layout.addRow(self._tr("Live 像素"), live_resolution)
-        quality_layout.addRow(self._tr("Snap 像素"), snap_resolution)
+        quality_layout.addRow(self._translated_label("Live 像素"), live_resolution)
+        quality_layout.addRow(self._translated_label("Snap 像素"), snap_resolution)
         control_layout.addWidget(quality_group)
 
-        exposure_group = self._register("cameraExposureGroup", QGroupBox(self._tr("曝光/增益")))
+        exposure_group = self._register("cameraExposureGroup", QGroupBox())
+        self._rt.title(exposure_group, "曝光/增益")
         exposure_layout = QGridLayout(exposure_group)
         exposure_auto = self._register("cameraExposureAuto", QCheckBox())
         self._rt.text(exposure_auto, "自动曝光")
@@ -525,30 +541,35 @@ class CameraPanel(QWidget):
         exposure_layout.addWidget(gain_spin, 1, 1)
         exposure_layout.addWidget(QLabel("Gamma"), 2, 0)
         exposure_layout.addWidget(gamma_spin, 2, 1)
-        exposure_layout.addWidget(QLabel(self._tr("锐化")), 3, 0)
+        exposure_layout.addWidget(self._translated_label("锐化"), 3, 0)
         exposure_layout.addWidget(sharpness_spin, 3, 1)
         control_layout.addWidget(exposure_group)
 
-        scale_group = self._register("cameraScaleGroup", QGroupBox(self._tr("比例尺")))
+        scale_group = self._register("cameraScaleGroup", QGroupBox())
+        self._rt.title(scale_group, "比例尺")
         scale_layout = QGridLayout(scale_group)
         objective_combo = self._register("cameraObjectiveCombo", QComboBox())
         objective_combo.addItems(list(OBJECTIVE_LABELS))
         objective_combo.setCurrentText(self._current_objective)
-        calibrate = self._register("cameraOpenScaleCalibration", QPushButton(self._tr("标定...")))
+        calibrate = self._register("cameraOpenScaleCalibration", QPushButton())
+        self._rt.text(calibrate, "标定...")
         scale_status = self._register("cameraScaleStatusLabel", QLabel(""))
         scale_status.setWordWrap(True)
         objective_combo.currentTextChanged.connect(self.set_objective)
         calibrate.clicked.connect(self.open_scale_calibration_dialog)
-        scale_layout.addWidget(QLabel(self._tr("倍率")), 0, 0)
+        scale_layout.addWidget(self._translated_label("倍率"), 0, 0)
         scale_layout.addWidget(objective_combo, 0, 1)
         scale_layout.addWidget(calibrate, 1, 0, 1, 2)
         scale_layout.addWidget(scale_status, 2, 0, 1, 2)
         control_layout.addWidget(scale_group)
 
-        display_group = self._register("cameraDisplayGroup", QGroupBox(self._tr("显示")))
+        display_group = self._register("cameraDisplayGroup", QGroupBox())
+        self._rt.title(display_group, "显示")
         display_layout = QVBoxLayout(display_group)
-        flip_x = self._register("cameraFlipHorizontal", QCheckBox(self._tr("水平翻转")))
-        flip_y = self._register("cameraFlipVertical", QCheckBox(self._tr("垂直翻转")))
+        flip_x = self._register("cameraFlipHorizontal", QCheckBox())
+        self._rt.text(flip_x, "水平翻转")
+        flip_y = self._register("cameraFlipVertical", QCheckBox())
+        self._rt.text(flip_y, "垂直翻转")
         flip_x.setChecked(bool(self.settings.flip_horizontal))
         flip_y.setChecked(bool(self.settings.flip_vertical))
         flip_x.toggled.connect(lambda _checked: self._on_display_transform_changed())
@@ -556,18 +577,26 @@ class CameraPanel(QWidget):
         display_layout.addWidget(flip_x)
         display_layout.addWidget(flip_y)
 
-        measurement_group = self._register("cameraMeasurementGroup", QGroupBox(self._tr("测量")))
+        measurement_group = self._register("cameraMeasurementGroup", QGroupBox())
+        self._rt.title(measurement_group, "测量")
         measurement_layout = QGridLayout(measurement_group)
-        crosshair = self._register("cameraCrosshairToggle", QCheckBox(self._tr("中心十字线")))
+        crosshair = self._register("cameraCrosshairToggle", QCheckBox())
+        self._rt.text(crosshair, "中心十字线")
         crosshair.setChecked(False)
-        line_button = self._register("cameraMeasureLine", QPushButton(self._tr("直线距离")))
-        polygon_button = self._register("cameraMeasurePolygon", QPushButton(self._tr("面积")))
-        finish_polygon = self._register("cameraFinishPolygon", QPushButton(self._tr("完成面积")))
-        undo_measurement = self._register("cameraUndoMeasurement", QPushButton(self._tr("撤销")))
-        clear_measurements = self._register("cameraClearMeasurements", QPushButton(self._tr("清空")))
-        include_annotations = self._register("cameraIncludeAnnotations", QCheckBox(self._tr("截图包含标注")))
+        line_button = self._register("cameraMeasureLine", QPushButton())
+        self._rt.text(line_button, "直线距离")
+        polygon_button = self._register("cameraMeasurePolygon", QPushButton())
+        self._rt.text(polygon_button, "面积")
+        finish_polygon = self._register("cameraFinishPolygon", QPushButton())
+        self._rt.text(finish_polygon, "完成面积")
+        undo_measurement = self._register("cameraUndoMeasurement", QPushButton())
+        self._rt.text(undo_measurement, "撤销")
+        clear_measurements = self._register("cameraClearMeasurements", QPushButton())
+        self._rt.text(clear_measurements, "清空")
+        include_annotations = self._register("cameraIncludeAnnotations", QCheckBox())
+        self._rt.text(include_annotations, "截图包含标注")
         include_annotations.setChecked(True)
-        measurement_status = self._register("cameraMeasurementStatusLabel", QLabel(self._tr("测量: 就绪")))
+        measurement_status = self._register("cameraMeasurementStatusLabel", QLabel())
         measurement_status.setWordWrap(True)
         line_button.setCheckable(True)
         polygon_button.setCheckable(True)
@@ -583,20 +612,25 @@ class CameraPanel(QWidget):
         measurement_layout.addWidget(finish_polygon, 2, 0)
         measurement_layout.addWidget(undo_measurement, 2, 1)
         measurement_layout.addWidget(clear_measurements, 3, 0)
-        measurement_layout.addWidget(include_annotations, 3, 1)
-        measurement_layout.addWidget(measurement_status, 4, 0, 1, 2)
+        measurement_layout.addWidget(include_annotations, 4, 0, 1, 2)
+        measurement_layout.addWidget(measurement_status, 5, 0, 1, 2)
         control_layout.addWidget(measurement_group)
 
-        results_group = self._register("cameraMeasurementResultsGroup", QGroupBox(self._tr("测量结果")))
+        results_group = self._register("cameraMeasurementResultsGroup", QGroupBox())
+        self._rt.title(results_group, "测量结果")
         results_layout = QVBoxLayout(results_group)
         results_table = self._register("cameraMeasurementTable", QTableWidget(0, 4))
-        results_table.setHorizontalHeaderLabels([self._tr("ID"), self._tr("类型"), self._tr("结果"), self._tr("备注")])
+        self._rt.custom(lambda: results_table.setHorizontalHeaderLabels(
+            [self._tr(key) for key in ("ID", "类型", "结果", "备注")]
+        ))
+        self._rt.custom(results_table.resizeColumnsToContents)
         results_table.setSelectionBehavior(QTableWidget.SelectRows)
         results_table.setSelectionMode(QTableWidget.SingleSelection)
         results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         results_table.setMinimumHeight(120)
         results_table.horizontalHeader().setStretchLastSection(True)
-        delete_measurement = self._register("cameraDeleteMeasurement", QPushButton(self._tr("删除选中")))
+        delete_measurement = self._register("cameraDeleteMeasurement", QPushButton())
+        self._rt.text(delete_measurement, "删除选中")
         delete_measurement.clicked.connect(self.delete_selected_measurement)
         results_layout.addWidget(results_table)
         results_layout.addWidget(delete_measurement)
@@ -663,7 +697,20 @@ class CameraPanel(QWidget):
             }
             """
         )
+        self._set_measurement_status("测量: 就绪")
+        self._rt.custom(self._refresh_readout_language)
+
+    def _refresh_readout_language(self) -> None:
+        self._set_preview_fps(self._preview_fps)
+        self._update_image_zoom_label()
         self._update_scale_status()
+        if self._displayed_frame is None:
+            self.controls["cameraImageLabel"].setText(self._tr("无图像"))
+        table = self.controls["cameraMeasurementTable"]
+        for row, measurement in enumerate(self._measurements):
+            item = table.item(row, 3)
+            if item is not None:
+                item.setText(self._measurement_note(measurement))
 
     def _on_exposure_auto_changed(self, checked: bool) -> None:
         self.controls["cameraExposureSpin"].setEnabled(not checked)
@@ -684,7 +731,7 @@ class CameraPanel(QWidget):
     def create_scale_calibration_dialog(self) -> QDialog:
         dialog = QDialog(self)
         dialog.setObjectName("cameraScaleCalibrationDialog")
-        dialog.setWindowTitle(self._tr("比例尺标定"))
+        self._rt.title(dialog, "比例尺标定")
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
@@ -697,12 +744,14 @@ class CameraPanel(QWidget):
         length_spin.setDecimals(3)
         length_spin.setValue(float(self._calibration_known_um))
         length_spin.setSuffix(" um")
-        form.addRow(self._tr("当前倍率"), objective)
-        form.addRow(self._tr("已知长度"), length_spin)
+        form.addRow(self._translated_label("当前倍率"), objective)
+        form.addRow(self._translated_label("已知长度"), length_spin)
         layout.addLayout(form)
 
-        start = self._register("cameraStartScaleCalibration", QPushButton(self._tr("开始两点标定")))
-        close = QPushButton(self._tr("关闭"))
+        start = self._register("cameraStartScaleCalibration", QPushButton())
+        self._rt.text(start, "开始两点标定")
+        close = QPushButton()
+        self._rt.text(close, "关闭")
         start.clicked.connect(lambda: self._start_scale_calibration_from_dialog(dialog))
         close.clicked.connect(dialog.reject)
         buttons = QHBoxLayout()
@@ -729,7 +778,7 @@ class CameraPanel(QWidget):
         if self._is_connected():
             return
 
-        self._set_status(self._tr("正在连接相机..."))
+        self._set_status("正在连接相机...")
         self._sync_connection_state(False)
         live_binning = self._binning_value("cameraLiveResolutionCombo")
         exposure_auto = self.controls["cameraExposureAuto"].isChecked()
@@ -767,7 +816,7 @@ class CameraPanel(QWidget):
 
     def start_preview(self) -> None:
         if not self._is_connected():
-            self._set_status(self._tr("相机未连接"))
+            self._set_status("相机未连接")
             return
         if self._preview_thread is not None:
             return
@@ -778,7 +827,7 @@ class CameraPanel(QWidget):
         self._preview_thread = thread
         self._set_preview_fps(None)
         self.controls["cameraPreview"].setText(self._tr("停止预览"))
-        self._set_status(self._tr("相机预览中"))
+        self._set_status("相机预览中")
         thread.start()
 
     def stop_preview(self, timeout_ms: int = PREVIEW_STOP_TIMEOUT_MS) -> bool:
@@ -798,7 +847,7 @@ class CameraPanel(QWidget):
 
     def apply_exposure(self) -> None:
         if not self._is_connected():
-            self._set_status(self._tr("相机未连接"))
+            self._set_status("相机未连接")
             return
         auto = self.controls["cameraExposureAuto"].isChecked()
         value = self.controls["cameraExposureSpin"].value()
@@ -812,7 +861,7 @@ class CameraPanel(QWidget):
 
     def apply_gain(self) -> None:
         if not self._is_connected():
-            self._set_status(self._tr("相机未连接"))
+            self._set_status("相机未连接")
             return
         auto = self.controls["cameraGainAuto"].isChecked()
         value = self.controls["cameraGainSpin"].value()
@@ -859,11 +908,11 @@ class CameraPanel(QWidget):
         self._active_measurement_preview_point = None
         self._sync_measurement_buttons()
         if mode == "line":
-            self._set_measurement_status(self._tr("测量: 直线距离，点击两个端点"))
+            self._set_measurement_status("测量: 直线距离，点击两个端点")
         elif mode == "polygon":
-            self._set_measurement_status(self._tr("测量: 面积，逐点点击后按完成面积"))
+            self._set_measurement_status("测量: 面积，逐点点击后按完成面积")
         else:
-            self._set_measurement_status(self._tr("测量: 就绪"))
+            self._set_measurement_status("测量: 就绪")
         self._refresh_last_frame()
 
     def _record_measurement_point(self, x: float, y: float) -> None:
@@ -873,12 +922,11 @@ class CameraPanel(QWidget):
             self._create_measurement("line", self._active_measurement_points[:2])
             return
         if self._measurement_mode == "line":
-            self._set_measurement_status(self._tr("测量: 已记录第一个端点"))
+            self._set_measurement_status("测量: 已记录第一个端点")
         elif self._measurement_mode == "polygon":
             self._set_measurement_status(
-                self._tr("测量: 面积点 {count}，继续点击或按完成面积").format(
-                    count=len(self._active_measurement_points)
-                )
+                "测量: 面积点 {count}，继续点击或按完成面积",
+                count=len(self._active_measurement_points),
             )
         self._refresh_last_frame()
 
@@ -886,7 +934,7 @@ class CameraPanel(QWidget):
         if self._measurement_mode != "polygon":
             return
         if len(self._active_measurement_points) < 3:
-            self._set_measurement_status(self._tr("测量: 面积至少需要三个点"))
+            self._set_measurement_status("测量: 面积至少需要三个点")
             return
         self._create_measurement("polygon", self._active_measurement_points)
 
@@ -894,11 +942,11 @@ class CameraPanel(QWidget):
         if self._active_measurement_points:
             self._active_measurement_points.pop()
             self._set_measurement_status(
-                self._tr("测量: 当前点数 {count}").format(count=len(self._active_measurement_points))
+                "测量: 当前点数 {count}", count=len(self._active_measurement_points)
             )
         elif self._measurements:
             self._measurements.pop()
-            self._set_measurement_status(self._tr("测量: 已撤销上一条结果"))
+            self._set_measurement_status("测量: 已撤销上一条结果")
         self._active_measurement_preview_point = None
         self._update_measurement_table()
         self._refresh_last_frame()
@@ -909,7 +957,7 @@ class CameraPanel(QWidget):
         self._active_measurement_preview_point = None
         self._set_measurement_mode(None)
         self._update_measurement_table()
-        self._set_measurement_status(self._tr("测量: 已清空"))
+        self._set_measurement_status("测量: 已清空")
 
     def delete_selected_measurement(self) -> None:
         table = self.controls["cameraMeasurementTable"]
@@ -920,7 +968,7 @@ class CameraPanel(QWidget):
             if 0 <= row < len(self._measurements):
                 del self._measurements[row]
         self._update_measurement_table()
-        self._set_measurement_status(self._tr("测量: 已删除选中结果"))
+        self._set_measurement_status("测量: 已删除选中结果")
         self._refresh_last_frame()
 
     def _create_measurement(self, kind: str, points: list[tuple[float, float]]) -> None:
@@ -944,7 +992,7 @@ class CameraPanel(QWidget):
         self._update_measurement_table()
         result = evaluate_measurement(measurement)
         self._set_measurement_status(
-            self._tr("测量: M{id} {value}").format(id=measurement.id, value=result["display"])
+            "测量: M{id} {value}", id=measurement.id, value=result["display"]
         )
         self._refresh_last_frame()
 
@@ -999,9 +1047,9 @@ class CameraPanel(QWidget):
 
     def _on_crosshair_toggled(self) -> None:
         if not self.controls["cameraCrosshairToggle"].isChecked():
-            self._set_measurement_status(self._tr("测量: 十字线关闭"))
+            self._set_measurement_status("测量: 十字线关闭")
         else:
-            self._set_measurement_status(self._crosshair_status_text())
+            self._set_measurement_status("{value}", value=self._crosshair_status_text)
         self._refresh_last_frame()
 
     def _crosshair_status_text(self) -> str:
@@ -1021,10 +1069,10 @@ class CameraPanel(QWidget):
             width, height = self._current_measurement_frame_size()
         return float(width) / 2.0, float(height) / 2.0
 
-    def _set_measurement_status(self, message: str) -> None:
+    def _set_measurement_status(self, source: str, **values) -> None:
         label = self.controls.get("cameraMeasurementStatusLabel")
         if label is not None:
-            label.setText(str(message))
+            self._rt.message(label, source, **values)
 
     def _schedule_overlay_refresh(self) -> None:
         if self._overlay_refresh_scheduled:
@@ -1049,7 +1097,7 @@ class CameraPanel(QWidget):
         self._measurement_mode = None
         self._sync_measurement_buttons()
         self._update_measurement_table()
-        self._set_measurement_status(self._tr("测量: 坐标系变化，已清空测量"))
+        self._set_measurement_status("测量: 坐标系变化，已清空测量")
         self._refresh_last_frame()
 
     def _on_display_transform_changed(self) -> None:
@@ -1092,9 +1140,9 @@ class CameraPanel(QWidget):
         try:
             path = self.save_snapshot()
         except Exception as exc:  # noqa: BLE001
-            self._set_status(self._tr("截图失败: {error}").format(error=exc))
+            self._set_status("截图失败: {error}", error=str(exc))
             return
-        self._set_status(self._tr("截图已保存: {name}").format(name=path.name))
+        self._set_status("截图已保存: {name}", name=path.name)
 
     def save_snapshot(self, *, now=None) -> Path:
         self._save_settings()
@@ -1177,35 +1225,33 @@ class CameraPanel(QWidget):
             self._capabilities = capabilities
             self._apply_capabilities(capabilities)
             self._sync_connection_state(True)
-            self.controls["cameraDeviceLabel"].setText(
-                self._tr("相机: {model} ({serial})").format(
-                    model=device.model_name,
-                    serial=device.serial_number,
-                )
+            self._rt.message(
+                self.controls["cameraDeviceLabel"], "相机: {model} ({serial})",
+                model=device.model_name, serial=device.serial_number,
             )
-            self._set_status(self._tr("Basler 相机已连接"))
+            self._set_status("Basler 相机已连接")
         elif kind == "disconnect":
             self._sync_connection_state(False)
             self.controller = None
-            self.controls["cameraDeviceLabel"].setText(self._tr("相机: 未连接"))
+            self._rt.message(self.controls["cameraDeviceLabel"], "相机: 未连接")
             self._last_frame = self._displayed_frame = self._pending_frame = None
             self._update_scale_status()
             self.controls["cameraImageLabel"].setText(self._tr("无图像"))
             self.controls["cameraImageLabel"].setPixmap(QPixmap())
             self.controls["cameraImageLabel"].set_source_size(0, 0)
-            self._set_status(self._tr("Basler 相机已断开"))
+            self._set_status("Basler 相机已断开")
         elif kind == "exposure":
-            self._set_status(self._tr("曝光设置已发送"))
+            self._set_status("曝光设置已发送")
         elif kind == "gain":
-            self._set_status(self._tr("增益设置已发送"))
+            self._set_status("增益设置已发送")
         elif kind == "image_adjustment":
-            self._set_status(self._tr("图像设置已发送"))
+            self._set_status("图像设置已发送")
 
     def _on_task_error(self, kind: str, message) -> None:
         if self._closing:
             return
         self._sync_connection_state(self._is_connected())
-        self._set_status(str(message))
+        self._set_status("{message}", message=str(message))
 
     def _handle_frame(self, frame: CameraFrame, fps: float | None = None) -> None:
         if self._closing:
@@ -1291,7 +1337,7 @@ class CameraPanel(QWidget):
     def _handle_preview_error(self, message: str) -> None:
         if self._closing:
             return
-        self._set_status(self._tr("预览失败: {error}").format(error=message))
+        self._set_status("预览失败: {error}", error=message)
 
     def _preview_finished(self, thread: CameraPreviewThread) -> None:
         if self._preview_thread is thread:
@@ -1494,18 +1540,18 @@ class CameraPanel(QWidget):
             self._calibration_known_um = float(length_spin.value())
         self._calibration_active = True
         self._calibration_points = []
-        self._set_status(self._tr("请在预览图像上点击标尺两端"))
+        self._set_status("请在预览图像上点击标尺两端")
 
     def record_calibration_point(self, x: float, y: float) -> None:
         if not self._calibration_active:
             return
         frame = self._displayed_frame
         if frame is None or not frame.binning:
-            self._set_status(self._tr("无法确认图像采样倍率，无法标定"))
+            self._set_status("无法确认图像采样倍率，无法标定")
             return
         self._calibration_points.append((float(x), float(y)))
         if len(self._calibration_points) < 2:
-            self._set_status(self._tr("已记录第一个标定点"))
+            self._set_status("已记录第一个标定点")
             return
         p1, p2 = self._calibration_points[:2]
         calibration = self.scale_store.calibrate_from_points(
@@ -1546,5 +1592,5 @@ class CameraPanel(QWidget):
     def _is_connected(self) -> bool:
         return self.controller is not None and bool(getattr(self.controller, "is_open", False))
 
-    def _set_status(self, message: str) -> None:
-        self.controls["cameraStatusLabel"].setText(str(message))
+    def _set_status(self, source: str, **values) -> None:
+        self._rt.message(self.controls["cameraStatusLabel"], source, **values)

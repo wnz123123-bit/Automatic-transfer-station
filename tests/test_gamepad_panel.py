@@ -337,6 +337,19 @@ class GamepadPanelI18nTests(unittest.TestCase):
         finally:
             translator.initialize("zh")
 
+    def test_language_switch_refreshes_hud_and_preserves_enabled_state(self):
+        from automatic_transfer_station.i18n import translator
+        panel, controls = self._make_panel()
+        panel._timer.stop()
+        translator.set_language("en")
+        self.assertEqual("Enable gamepad", controls["btnGamepadEnable"].text())
+        self.assertIn("Disarmed", controls["gamepadHud"].text())
+        panel._controller.enabled = True
+        panel._refresh_hud()
+        translator.set_language("zh")
+        self.assertIn("已启用", controls["gamepadHud"].text())
+        self.assertTrue(panel._controller.enabled)
+
 
 if __name__ == "__main__":
     unittest.main()

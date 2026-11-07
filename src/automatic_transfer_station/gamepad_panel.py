@@ -74,7 +74,16 @@ class GamepadPanel(QGroupBox):
         self._cont_epoch = {}   # axis -> monotonically increasing; a stop bumps it to stale pending continuous
         self._reader = reader or load_default_reader()
         self._controller = controller or GamepadController(now=clock)
+        self.setObjectName("gamepadPanel")
+        self.setStyleSheet(
+            "QGroupBox#gamepadPanel{color:#e8eef6;background:#172536;"
+            "border:1px solid #506579;border-radius:6px;margin-top:10px;}"
+            "QGroupBox#gamepadPanel::title{subcontrol-origin:margin;"
+            "subcontrol-position:top left;left:10px;padding:0 4px;color:#e8eef6;}"
+            "QLabel#gamepadHud{color:#e8eef6;}"
+        )
         self._build_ui()
+        self._rt.custom(self._refresh_hud)
         self._timer = QTimer(self)
         self._timer.setInterval(poll_ms)
         self._timer.timeout.connect(self.tick)
@@ -82,6 +91,7 @@ class GamepadPanel(QGroupBox):
 
     def _build_ui(self):
         row = QHBoxLayout(self)
+        row.setContentsMargins(10, 12, 10, 8)
         self._enable_btn = self._reg("btnGamepadEnable", QPushButton(self._tr("启用手柄")))
         self._enable_btn.setCheckable(True)
         self._rt.tooltip(self._enable_btn, "START=启用/停用 · BACK=急停 · 点 ? 查看完整按键说明")
@@ -91,6 +101,7 @@ class GamepadPanel(QGroupBox):
         self._rt.tooltip(self._help_btn, "查看手柄按键映射")
         self._help_btn.clicked.connect(self._show_mapping_help)
         self._hud = self._reg("gamepadHud", QLabel())
+        self._hud.setWordWrap(True)
         row.addWidget(self._enable_btn)
         row.addWidget(self._help_btn)
         row.addWidget(self._hud, 1)

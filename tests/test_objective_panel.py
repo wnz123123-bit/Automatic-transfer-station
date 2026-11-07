@@ -525,6 +525,19 @@ class ObjectivePanelI18nTests(unittest.TestCase):
         finally:
             translator.initialize("zh")
 
+    def test_switching_language_preserves_current_objective_and_connection(self):
+        from automatic_transfer_station.i18n import translator
+        panel = self._make_panel()
+        panel._set_link_state(True, "COM7")
+        panel._apply_position(3)
+        for lang, connected, position in (
+            ("en", "connected COM7", "20X (slot 3)"),
+            ("zh", "已连接 COM7", "20X (孔位 3)"),
+        ):
+            translator.set_language(lang)
+            self.assertIn(connected, panel.controls["objectiveLinkLabel"].text())
+            self.assertIn(position, panel.controls["objectiveStatusLabel"].text())
+
     def test_com_dialog_buttons_in_english(self):
         from automatic_transfer_station.i18n import translator
 

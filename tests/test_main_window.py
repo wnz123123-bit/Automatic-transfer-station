@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 import sys
 import tempfile
@@ -322,7 +322,7 @@ class MainWindowTests(unittest.TestCase):
         window.show()
         app.processEvents()
 
-        self.assertEqual("EthBoardTest Python", window.windowTitle())
+        self.assertEqual("二维材料转移平台", window.windowTitle())
         self.assertIn("btnOpen", window.controls)
         self.assertIn("btnFwd3", window.controls)
         self.assertIn("txtSpeed3", window.controls)
@@ -1076,6 +1076,8 @@ class MainWindowTests(unittest.TestCase):
         app = get_app()
         controller = RecordingController()
         controller.is_open = True
+        # Keep the fake readback in range while asserting the move status.
+        controller.positions[5] = 687898.0
         window = MainWindow(controller=controller, motion_command_queue_factory=_INLINE_QUEUE_FACTORY, position_store_path=self.position_store_path)
         window.show()
         app.processEvents()
@@ -2267,7 +2269,41 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual("Microscope Z", window.controls["axisHotspotMicroscopeZ"].text())
             # panel title
             self.assertEqual("Motion control", window.controls["axisControlTitle"].text())
+            self.assertEqual("2D Material Transfer Station", window.windowTitle())
+            self.assertEqual("Motion control closed – preview", window.controls["motionStatusText"].text())
+            self.assertIn("disconnected", window.controls["objectiveLinkLabel"].text().lower())
+            self.assertEqual("Current objective: not read", window.controls["objectiveStatusLabel"].text())
+            window._set_motion_status("运动控制操作超时（{kind}），运动卡无响应", "alarm", kind="open")
+            translator.set_language("zh")
+            self.assertIn("操作超时（open）", window.controls["motionStatusText"].text())
+            translator.set_language("en")
+            self.assertIn("timeout (open)", window.controls["motionStatusText"].text())
+            self.assertIn("#dc2626", window.controls["motionStatusLamp"].styleSheet())
         finally:
+            translator.initialize("zh")
+
+    def test_all_axis_cards_fit_default_window_in_both_languages(self):
+        from automatic_transfer_station.main_window import MainWindow
+        from automatic_transfer_station.i18n import translator
+        app = get_app()
+        window = MainWindow(
+            controller=RecordingController(), motion_command_queue_factory=_INLINE_QUEUE_FACTORY,
+            position_store_path=self.position_store_path,
+        )
+        window.timer.stop()
+        window.show()
+        try:
+            for lang in ("en", "zh", "en"):
+                translator.set_language(lang)
+                window.resize(1720, 860)
+                app.processEvents()
+                area = window.controls["axisScrollArea"]
+                self.assertEqual(0, area.verticalScrollBar().maximum(), lang)
+                self.assertEqual(0, area.horizontalScrollBar().maximum(), lang)
+                chip = window.controls["axisHotspotMicroscopeZ"]
+                self.assertGreaterEqual(chip.width(), chip.fontMetrics().horizontalAdvance(chip.text()) + 14)
+        finally:
+            window.close()
             translator.initialize("zh")
 
 

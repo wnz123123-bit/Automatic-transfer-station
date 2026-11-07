@@ -142,6 +142,7 @@ class ObjectivePanel(QGroupBox):
         self._tr = tr
         self._rt = Retranslator(translator)
         self._build_ui()
+        self._rt.custom(lambda: self._set_link_state(*self._link_state))
 
     @staticmethod
     def _default_port_lister() -> list[object]:
@@ -176,6 +177,7 @@ class ObjectivePanel(QGroupBox):
         layout.addWidget(link, 1, 0, 1, 5)
 
         status = self._register("objectiveStatusLabel", QLabel(self._tr("当前物镜: 未读取")))
+        self._rt.message(status, "当前物镜: 未读取")
         status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(status, 2, 0, 1, 5)
 
@@ -299,7 +301,10 @@ class ObjectivePanel(QGroupBox):
         refresh = self._register("objectiveRefreshPorts", QPushButton(self._tr("刷新端口")))
         self._rt.text(refresh, "刷新端口")
         connect = self._register("objectiveConnect", QPushButton(self._tr("连接", context="objective")))
-        self._rt.text(connect, "连接", context="objective")
+        self._rt.custom(lambda: connect.setText(
+            self._tr("断开") if getattr(self.nosepiece_controller, "is_open", False)
+            else self._tr("连接", context="objective")
+        ))
         read = self._register("objectiveReadPosition", QPushButton(self._tr("读取位置")))
         self._rt.text(read, "读取位置")
         status = self._register("objectiveComStatusLabel", QLabel(self._tr("物镜串口未连接")))
@@ -343,12 +348,12 @@ class ObjectivePanel(QGroupBox):
             if index >= 0:
                 combo.setCurrentIndex(index)
         combo.blockSignals(False)
-        self._set_com_status(self._tr("端口已刷新"))
+        self._set_com_status("端口已刷新")
 
     def toggle_com_connection(self) -> None:
         if getattr(self.nosepiece_controller, "is_open", False):
             self.nosepiece_controller.disconnect()
-            self._set_com_status(self._tr("物镜串口已断开"))
+            self._set_com_status("物镜串口已断开")
             self._set_link_state(False)
             if "objectiveConnect" in self.controls:
                 self.controls["objectiveConnect"].setText(self._tr("连接", context="objective"))
@@ -357,20 +362,20 @@ class ObjectivePanel(QGroupBox):
 
     def connect_selected_port(self) -> bool:
         if self.controller_factory is None:
-            self._set_com_status(self._tr("未配置物镜串口工厂"))
+            self._set_com_status("未配置物镜串口工厂")
             return False
         if self._connect_thread is not None and self._connect_thread.isRunning():
-            self._set_com_status(self._tr("正在连接，请稍候"))
+            self._set_com_status("正在连接，请稍候")
             return False
         # Refuse to swap controllers while a move/read worker is in flight. The
         # worker holds (and may be writing to) the current controller's port; a
         # swap here would close that port out from under the worker and the new
         # controller could silently reopen the old port via _request (Fix 3).
         if self._move_thread is not None and self._move_thread.isRunning():
-            self._set_com_status(self._tr("操作进行中，请稍候"))
+            self._set_com_status("操作进行中，请稍候")
             return False
         if self._read_thread is not None and self._read_thread.isRunning():
-            self._set_com_status(self._tr("操作进行中，请稍候"))
+            self._set_com_status("操作进行中，请稍候")
             return False
         port = self.controls["objectivePortCombo"].currentText().strip()
         controller = self.controller_factory(port)
@@ -383,7 +388,7 @@ class ObjectivePanel(QGroupBox):
         self._disconnect_previous_controller(self._previous_controller, controller)
         self.nosepiece_controller = controller
 
-        self._set_com_status(self._tr("正在连接 {port} ...").format(port=port))
+        self._set_com_status("正在连接 {port} ...", port=port)
         self._set_com_controls_enabled(False)
 
         thread = ObjectiveConnectThread(controller, port, self)
@@ -406,7 +411,7 @@ class ObjectivePanel(QGroupBox):
         port = getattr(thread, "port", getattr(controller, "port", ""))
         if "objectiveConnect" in self.controls:
             self.controls["objectiveConnect"].setText(self._tr("断开"))
-        self._set_com_status(self._tr("已连接 {port}").format(port=port))
+        self._set_com_status("已连接 {port}", port=port)
         self._set_link_state(True, str(port))
         if position >= 0:
             self._apply_position(position)
@@ -419,7 +424,7 @@ class ObjectivePanel(QGroupBox):
         previous = getattr(self, "_previous_controller", None)
         if previous is not None:
             self.nosepiece_controller = previous
-        self._set_com_status(self._tr("连接失败: {error}").format(error=error))
+        self._set_com_status("连接失败: {error}", error=error)
         self._set_link_state(
             getattr(self.nosepiece_controller, "is_open", False),
             getattr(self.nosepiece_controller, "port", "") or "",
@@ -446,12 +451,15 @@ class ObjectivePanel(QGroupBox):
             except Exception:  # pragma: no cover - best effort cleanup of orphaned handle
                 pass
 
-    def _set_com_status(self, message: str) -> None:
+    def _set_com_status(self, message: str, **values) -> None:
         if "objectiveComStatusLabel" in self.controls:
-            self.controls["objectiveComStatusLabel"].setText(message)
+            message = self._rt.message(self.controls["objectiveComStatusLabel"], message, **values)
+        else:
+            message = self._tr(message).format(**values)
         self._emit_status(message)
 
     def _set_link_state(self, connected: bool, port: str = "") -> None:
+        self._link_state = (connected, port)
         # Persistent connection badge on the always-visible panel so the operator
         # can tell the nosepiece serial link state at a glance (a coloured dot +
         # pill, not just grey text) without opening the COM dialog.
@@ -477,13 +485,11 @@ class ObjectivePanel(QGroupBox):
 
     def select_objective(self, label: str, position: int) -> None:
         if self._move_thread is not None and self._move_thread.isRunning():
-            message = self._tr("物镜切换中，请等待")
-            self.controls["objectiveStatusLabel"].setText(message)
+            message = self._rt.message(self.controls["objectiveStatusLabel"], "物镜切换中，请等待")
             self._emit_status(message)
             return
 
-        message = self._tr("物镜切换中: {label} (孔位 {position})").format(label=label, position=position)
-        self.controls["objectiveStatusLabel"].setText(message)
+        message = self._rt.message(self.controls["objectiveStatusLabel"], "物镜切换中: {label} (孔位 {position})", label=label, position=position)
         self._emit_status(message)
         self._set_move_controls_enabled(False)
 
@@ -498,16 +504,14 @@ class ObjectivePanel(QGroupBox):
         if self._slots_disabled():
             return
         self._mark_selected(position)
-        message = self._tr("当前物镜: {label} (孔位 {position})").format(label=label, position=position)
-        self.controls["objectiveStatusLabel"].setText(message)
+        message = self._rt.message(self.controls["objectiveStatusLabel"], "当前物镜: {label} (孔位 {position})", label=label, position=position)
         self._emit_status(message)
         self.objective_changed.emit(label, position)
 
     def _fail_objective_move(self, error: str) -> None:
         if self._slots_disabled():
             return
-        message = self._tr("物镜切换失败: {error}").format(error=error)
-        self.controls["objectiveStatusLabel"].setText(message)
+        message = self._rt.message(self.controls["objectiveStatusLabel"], "物镜切换失败: {error}", error=error)
         self._emit_status(message)
 
     def _clear_objective_move(self) -> None:
@@ -528,17 +532,14 @@ class ObjectivePanel(QGroupBox):
         # Do not read while a move is in flight: the move thread already owns the
         # serial handle, and a concurrent read would interleave on it (Fix 3).
         if self._move_thread is not None and self._move_thread.isRunning():
-            message = self._tr("操作进行中，请稍候")
-            if "objectiveStatusLabel" in self.controls:
-                self.controls["objectiveStatusLabel"].setText(message)
+            message = self._rt.message(self.controls["objectiveStatusLabel"], "操作进行中，请稍候")
             self._emit_status(message)
             return
         # Do not auto-reopen a deliberately-disconnected port. _request no longer
         # silently reconnects, so without this guard the read would simply fail;
         # surface the disconnected state instead of issuing a doomed read (Fix 5).
         if not getattr(self.nosepiece_controller, "is_open", False):
-            message = self._tr("物镜串口未连接")
-            self._set_com_status(message)
+            self._set_com_status("物镜串口未连接")
             return
         controller = self.nosepiece_controller
         thread = ObjectiveReadThread(controller, self)
@@ -553,16 +554,14 @@ class ObjectivePanel(QGroupBox):
             return
         self._mark_selected(position)
         label = LABEL_BY_POSITION.get(position, self._tr("未知"))
-        self.controls["objectiveStatusLabel"].setText(
-            self._tr("当前物镜: {label} (孔位 {position})").format(label=label, position=position)
-        )
+        self._rt.message(self.controls["objectiveStatusLabel"], "当前物镜: {label} (孔位 {position})",
+                         label=label, position=position)
         self.objective_changed.emit(label, position)
 
     def _fail_read_position(self, error: str) -> None:
         if self._slots_disabled():
             return
-        message = self._tr("物镜位置读取失败: {error}").format(error=error)
-        self.controls["objectiveStatusLabel"].setText(message)
+        message = self._rt.message(self.controls["objectiveStatusLabel"], "物镜位置读取失败: {error}", error=error)
         self._emit_status(message)
 
     def _clear_read_thread(self) -> None:

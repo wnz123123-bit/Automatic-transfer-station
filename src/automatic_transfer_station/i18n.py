@@ -24,6 +24,7 @@ TRANSLATIONS.update({
     # main_window — static widget text
     "显微镜调整": "Microscope adjust",
     "坐标标定": "Calibration",
+    "二维材料转移平台": "2D Material Transfer Station",
     "轴控制面板": "Motion control",
     "镜Z": "Microscope Z",
     "停止移动": "Stop motion",
@@ -42,6 +43,8 @@ TRANSLATIONS.update({
     "点位管理": "Point manager",
     "速度 ({speed_unit})": "Speed ({speed_unit})",
     "步长 ({step_unit})": "Step ({step_unit})",
+    "速度\n({speed_unit})": "Speed\n({speed_unit})",
+    "步长\n({step_unit})": "Step\n({step_unit})",
     # axis sections
     "吸附台": "Adsorption",
     "载玻片侧": "Slide",
@@ -613,6 +616,7 @@ class Retranslator:
     def __init__(self, translator: "Translator"):
         self._translator = translator
         self._apply: list[Callable[[], None]] = []
+        self._messages: dict[object, tuple[str, dict]] = {}
         translator.add_observer(self.retranslate)
 
     def _add(self, fn: Callable[[], None]) -> None:
@@ -621,6 +625,15 @@ class Retranslator:
 
     def text(self, widget, zh: str, context: str | None = None) -> None:
         self._add(lambda: widget.setText(self._translator.tr(zh, context)))
+
+    def message(self, widget, zh: str, **values) -> str:
+        """Keep the latest status template so language switches preserve its data."""
+        self._messages[widget] = (zh, values)
+        text = self._translator.tr(zh).format(**{
+            key: value() if callable(value) else value for key, value in values.items()
+        })
+        widget.setText(text)
+        return text
 
     def title(self, widget, zh: str, context: str | None = None) -> None:
         setter = getattr(widget, "setTitle", None) or widget.setWindowTitle
@@ -642,6 +655,12 @@ class Retranslator:
         self._add(apply_fn)
 
     def retranslate(self) -> None:
+        for widget, (zh, values) in list(self._messages.items()):
+            try:
+                self.message(widget, zh, **values)
+            except RuntimeError:
+                # Dialogs can be destroyed while their owning panel stays alive.
+                self._messages.pop(widget, None)
         # Isolate each closure: one failing widget (e.g. destroyed) must not stop the
         # rest of this panel's text from updating on a language switch.
         for fn in self._apply:

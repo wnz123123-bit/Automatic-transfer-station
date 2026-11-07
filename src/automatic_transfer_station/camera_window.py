@@ -25,7 +25,7 @@ class CameraWindow(QMainWindow):
         self.setObjectName("cameraWindow")
         self._rt.custom(lambda: self.setWindowTitle(self._tr("Basler 相机")))
         self.resize(760, 620)
-        self.setMinimumSize(560, 460)
+        self.setMinimumSize(760, 620)
 
         self.camera_panel = CameraPanel(
             register=register,

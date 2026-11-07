@@ -976,6 +976,78 @@ class CameraPanelTests(unittest.TestCase):
         finally:
             translator.initialize("zh")
 
+    def test_language_switch_preserves_camera_readouts_and_measurement_progress(self):
+        from automatic_transfer_station.i18n import translator
+
+        controller = FakeCameraController()
+        panel, controls = self._make_panel(controller)
+        panel._render_frame(controller.frame)
+        panel._set_preview_fps(24.5)
+        panel._set_image_zoom(1.25)
+        panel._set_measurement_mode("polygon")
+        panel._record_measurement_point(0, 0)
+        panel._record_measurement_point(1, 0)
+        dialog = panel.create_scale_calibration_dialog()
+        original_calls = list(controller.calls)
+
+        translator.set_language("en")
+        self.assertEqual("Acquisition", controls["cameraAcquireGroup"].title())
+        self.assertEqual("Scale bar", controls["cameraScaleGroup"].title())
+        self.assertEqual("Flip horizontal", controls["cameraFlipHorizontal"].text())
+        self.assertEqual("Type", controls["cameraMeasurementTable"].horizontalHeaderItem(1).text())
+        self.assertEqual("Preview FPS: 24.5", controls["cameraFpsLabel"].text())
+        self.assertEqual("Image zoom: 125%", controls["cameraZoomLabel"].text())
+        self.assertEqual("Camera: puA2500-14ucMIC (25141247)", controls["cameraDeviceLabel"].text())
+        self.assertEqual("10X: uncalibrated", controls["cameraScaleStatusLabel"].text())
+        self.assertEqual("Measurement: area point 2; continue or finish area", controls["cameraMeasurementStatusLabel"].text())
+        self.assertEqual("Basler camera connected", controls["cameraStatusLabel"].text())
+        self.assertEqual("Scale calibration", dialog.windowTitle())
+        self.assertFalse(controls["cameraImageLabel"].pixmap().isNull())
+
+        translator.set_language("zh")
+        self.assertEqual("比例尺", controls["cameraScaleGroup"].title())
+        self.assertEqual("测量: 面积点 2，继续点击或按完成面积", controls["cameraMeasurementStatusLabel"].text())
+        self.assertEqual("比例尺标定", dialog.windowTitle())
+        self.assertEqual([(0.0, 0.0), (1.0, 0.0)], panel._active_measurement_points)
+        self.assertEqual(original_calls, controller.calls)
+        dialog.close()
+
+    def test_language_switch_preserves_running_preview_and_raw_error(self):
+        from automatic_transfer_station.i18n import translator
+
+        panel, controls = self._make_panel(FakeCameraController())
+        panel.start_preview()
+        thread = panel._preview_thread
+        translator.set_language("en")
+        self.assertEqual("Stop preview", controls["cameraPreview"].text())
+        self.assertIs(thread, panel._preview_thread)
+        self.assertEqual("Camera preview running", controls["cameraStatusLabel"].text())
+        panel.stop_preview()
+        panel._on_task_error("preview", "camera error: {raw_device_data}")
+        translator.set_language("zh")
+        self.assertEqual("预览", controls["cameraPreview"].text())
+        self.assertEqual("camera error: {raw_device_data}", controls["cameraStatusLabel"].text())
+
+    def test_camera_header_fits_narrow_window_in_both_languages(self):
+        from automatic_transfer_station.i18n import translator
+
+        panel, controls = self._make_panel(FakeCameraController())
+        panel.resize(760, 620)
+        panel.show()
+        for language in ("zh", "en", "zh"):
+            translator.set_language(language)
+            get_app().processEvents()
+            for key in ("cameraTitleLabel", "cameraFpsLabel", "cameraZoomLabel"):
+                label = controls[key]
+                if label.wordWrap():
+                    self.assertGreaterEqual(label.height(), label.heightForWidth(label.width()), key)
+                else:
+                    self.assertGreaterEqual(label.width(), label.sizeHint().width(), key)
+            image = controls["cameraImageLabel"]
+            self.assertTrue(image.parentWidget().rect().contains(image.geometry()))
+            scroll = controls["cameraControlScroll"]
+            self.assertEqual(0, scroll.horizontalScrollBar().maximum())
+
 
 if __name__ == "__main__":
     unittest.main()
