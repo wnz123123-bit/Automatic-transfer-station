@@ -32,6 +32,25 @@ class JogPrm:
     smooth: float = 0.0
 
 
+class TCrdPrm(ctypes.Structure):
+    """GAS_N.h TCrdPrm, #pragma pack(2), Windows LONG (always 32 bits).
+
+    This declaration is header-backed, not a claim of board ABI qualification.
+    Explicit widths also keep passive/fake-DLL tests portable to LP64 hosts.
+    """
+
+    _pack_ = 2
+    _fields_ = [
+        ("dimension", ctypes.c_int16),
+        ("profile", ctypes.c_int16 * 8),
+        ("synVelMax", ctypes.c_double),
+        ("synAccMax", ctypes.c_double),
+        ("evenTime", ctypes.c_int16),
+        ("setOriginFlag", ctypes.c_int16),
+        ("originPos", ctypes.c_int32 * 8),
+    ]
+
+
 class AxisHomePrm(ctypes.Structure):
     # Default (natural) struct packing is intentional. All fields actually used by
     # home_set_prm() lie at offsets identical under both default and #pragma
@@ -120,6 +139,116 @@ class GasApi:
             func = getattr(self.dll, name)
             func.argtypes = argtypes
             func.restype = restype
+
+        # Optional: old DLLs and existing test doubles need not expose CRD APIs.
+        # Export presence establishes capability only, never physical qualification.
+        coordinate_signatures = {
+            "GA_SetCrdPrm": [ctypes.c_int16, ctypes.POINTER(TCrdPrm)],
+            "GA_LnXY": [ctypes.c_int16, ctypes.c_int32, ctypes.c_int32,
+                        ctypes.c_double, ctypes.c_double, ctypes.c_double,
+                        ctypes.c_int16, ctypes.c_int32],
+            "GA_CrdStart": [ctypes.c_int16, ctypes.c_int16],
+            "GA_CrdStatus": [ctypes.c_int16, ctypes.POINTER(ctypes.c_int16),
+                             ctypes.POINTER(ctypes.c_int32), ctypes.c_int16],
+            "GA_CrdClear": [ctypes.c_int16, ctypes.c_int16],
+        }
+        self.supports_coordinated_motion = all(
+            callable(getattr(self.dll, name, None)) for name in coordinate_signatures
+        )
+        for name, argtypes in coordinate_signatures.items():
+            func = getattr(self.dll, name, None)
+            if func is not None:
+                func.argtypes = argtypes
+                func.restype = ctypes.c_int
+
+        # GAS_N.h exact prototypes. MC_GPO == 12 does not establish that a
+        # particular external output is addressed by that BufIO type/card pair.
+        # That relationship must be explicitly commissioned by the caller.
+        gate_signatures = {
+            "GA_BufIO": [ctypes.c_int16, ctypes.c_uint16, ctypes.c_uint16,
+                         ctypes.c_uint16, ctypes.c_uint16, ctypes.c_int16, ctypes.c_int32],
+            "GA_SetExtDoBit": [ctypes.c_int16, ctypes.c_int16, ctypes.c_uint16],
+            "GA_GetExtDoBit": [ctypes.c_int16, ctypes.c_int16, ctypes.POINTER(ctypes.c_uint16)],
+        }
+        self.supports_buffered_io = callable(getattr(self.dll, "GA_BufIO", None))
+        self.supports_external_do = all(callable(getattr(self.dll, name, None))
+                                       for name in ("GA_SetExtDoBit", "GA_GetExtDoBit"))
+        self.supports_cutting_gate = self.supports_buffered_io and self.supports_external_do
+        for name, argtypes in gate_signatures.items():
+            func = getattr(self.dll, name, None)
+            if func is not None:
+                func.argtypes = argtypes
+                func.restype = ctypes.c_int
+
+    @staticmethod
+    def _integer_range(value: int, maximum: int, label: str) -> None:
+        if type(value) is not int or not 0 <= value <= maximum:
+            raise ValueError(f"{label} must be an integer in 0..{maximum}")
+
+    def buf_io(self, coordinate: int, do_type: int, card_index: int, mask: int,
+               value: int, fifo: int = 0, segment: int = 0) -> int:
+        if not self.supports_buffered_io:
+            raise RuntimeError("GA_BufIO export is unavailable")
+        for label, number in (("do_type", do_type), ("card_index", card_index),
+                              ("mask", mask), ("value", value)):
+            self._integer_range(number, 0xFFFF, label)
+        self._integer_range(coordinate, 0x7FFF, "coordinate")
+        self._integer_range(fifo, 0x7FFF, "fifo")
+        self._integer_range(segment, 0x7FFFFFFF, "segment")
+        return int(self.dll.GA_BufIO(coordinate, do_type, card_index, mask, value, fifo, segment))
+
+    def set_ext_do_bit(self, card_index: int, bit_index: int, value: int) -> int:
+        if not self.supports_external_do:
+            raise RuntimeError("external digital output exports are unavailable")
+        self._integer_range(card_index, 0x7FFF, "card_index")
+        self._integer_range(bit_index, 0x7FFF, "bit_index")
+        self._integer_range(value, 1, "digital output value")
+        return int(self.dll.GA_SetExtDoBit(card_index, bit_index, value))
+
+    def get_ext_do_bit(self, card_index: int, bit_index: int) -> int:
+        if not self.supports_external_do:
+            raise RuntimeError("external digital output exports are unavailable")
+        self._integer_range(card_index, 0x7FFF, "card_index")
+        self._integer_range(bit_index, 0x7FFF, "bit_index")
+        value = ctypes.c_uint16()
+        result = int(self.dll.GA_GetExtDoBit(card_index, bit_index, ctypes.byref(value)))
+        if result != 0:
+            raise RuntimeError(f"GA_GetExtDoBit({card_index}, {bit_index}) failed with {result}")
+        return int(value.value)
+
+    def _require_coordinates(self) -> None:
+        if not self.supports_coordinated_motion:
+            raise RuntimeError("coordinated motion DLL exports are unavailable")
+
+    def set_crd_prm(self, coordinate: int, prm: TCrdPrm) -> int:
+        self._require_coordinates()
+        return int(self.dll.GA_SetCrdPrm(coordinate, ctypes.byref(prm)))
+
+    def line_xy(self, coordinate: int, x: int, y: int, velocity: float,
+                acceleration: float, end_velocity: float = 0.0,
+                fifo: int = 0, segment: int = 0) -> int:
+        self._require_coordinates()
+        if any(not -(2 ** 31) <= value < 2 ** 31 for value in (x, y, segment)):
+            raise ValueError("coordinate/segment exceeds Windows LONG range")
+        return int(self.dll.GA_LnXY(coordinate, x, y, velocity, acceleration,
+                                  end_velocity, fifo, segment))
+
+    def crd_start(self, mask: int, option: int = 0) -> int:
+        self._require_coordinates()
+        return int(self.dll.GA_CrdStart(mask, option))
+
+    def crd_status(self, coordinate: int, fifo: int = 0) -> tuple[int, int]:
+        self._require_coordinates()
+        running, segment = ctypes.c_int16(), ctypes.c_int32()
+        result = int(self.dll.GA_CrdStatus(coordinate, ctypes.byref(running),
+                                         ctypes.byref(segment), fifo))
+        if result != 0:
+            raise RuntimeError(f"GA_CrdStatus({coordinate}) failed with {result}")
+        return int(running.value), int(segment.value)
+
+    def crd_clear(self, coordinate: int, fifo: int = 0) -> int:
+        self._require_coordinates()
+        return int(self.dll.GA_CrdClear(coordinate, fifo))
 
     def open_network(self, ip_address: str, mode: int = 0) -> int:
         if not ip_address:

@@ -1218,7 +1218,9 @@ class MainWindowTests(unittest.TestCase):
         nosepiece.release.set()
 
         self.assertTrue(wait_until(lambda: window.controls["btnObjective20X"].property("selectedObjective")))
-        self.assertTrue(window.controls["btnObjective20X"].isEnabled())
+        # Selection arrives on succeeded; controls unlock on the separately
+        # queued QThread.finished signal. Wait for that observable completion.
+        self.assertTrue(wait_until(lambda: window.controls["btnObjective20X"].isEnabled()))
         self.assertIn("当前物镜: 20X", window.controls["objectiveStatusLabel"].text())
 
     def test_objective_panel_com_popup_connects_selected_serial_port(self):

@@ -238,6 +238,38 @@ class BaslerCameraController:
                 raise CameraError("Camera returned no frame")
             return frame
 
+    def grab_reference(self, timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS) -> CameraFrame:
+        """Acquire a fresh stationary reference, flushing preview's queued image.
+
+        Uses the same camera handle/lock as preview. Stopping acquisition before
+        the single grab avoids attributing a buffered pre-motion frame to a new
+        stage pose. Acquisition resolution is unchanged.
+        """
+        with self._io_lock:
+            handle = self._require_handle()
+            was_previewing = self._previewing
+            failure = None
+            try:
+                handle.stop_preview()
+                self._previewing = False
+                frame = handle.grab_rgb(int(timeout_ms))
+                if frame is None:
+                    raise CameraError("Camera returned no reference frame")
+                return frame
+            except Exception as exc:
+                failure = CameraError(f"Failed to grab camera reference: {exc}")
+                raise failure from exc
+            finally:
+                if was_previewing and self._handle is handle:
+                    try:
+                        handle.start_preview()
+                    except Exception as restore_error:
+                        self._previewing = False
+                        detail = f"{failure}; " if failure is not None else ""
+                        raise CameraError(f"{detail}Failed to restore preview: {restore_error}") from (failure or restore_error)
+                    else:
+                        self._previewing = True
+
     def grab_one_with_settings(
         self,
         snap_settings: CameraAcquisitionSettings,

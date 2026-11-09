@@ -4,6 +4,19 @@
 
 Python GUI controller for the two-dimensional-material transfer station.
 
+The **Laser cutting / 激光切割** entry opens a separate workspace sharing the
+existing camera. It supports fresh reference photos, ROI export, pixel-to-stage
+calibration, line/polygon drawing, measured backlash compensation and dark rehearsal on
+**X3/Y3 only**. Area ablation supports continuous rows or dots with independent
+row/point spacing, settling/exposure times and reusable recipes. A read-only live
+camera view stays available during processing while the reference photo and path
+remain fixed; stale or disconnected video is identified. Qualified live
+execution uses motion-card gate timing and the new
+Arduino firmware. The current Comp-only apparatus remains blocked from automatic
+emission until independent hardware inhibit and timing commissioning are complete.
+See [the cutting workflow and validation record](docs/laser-cutting.md) and
+[the matching firmware protocol](firmware/MLC03A_TransferStation/README.md).
+
 ## Project Layout
 
 ```text
@@ -133,7 +146,7 @@ The default real mode does not connect at startup. The program connects to the m
 ## Test
 
 ```powershell
-python -m pytest -q
+python scripts/run_regression.py
 python .\run_transfer_station.py --smoke-exit
 ```
 

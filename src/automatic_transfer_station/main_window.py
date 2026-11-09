@@ -911,6 +911,12 @@ class MainWindow(QMainWindow):
         )
         lang_toggle.clicked.connect(self._toggle_language)
         self.statusBar().addPermanentWidget(lang_toggle)
+        self.cutting_window = None
+        self._cutting_disabled_widgets = []
+        laser_button = self._register("laserCuttingButton", QPushButton())
+        self._retranslator.text(laser_button, "激光切割")
+        laser_button.clicked.connect(self.show_cutting_window)
+        self.statusBar().addPermanentWidget(laser_button)
         self._retranslator.custom(
             lambda b=lang_toggle: b.setText("中文" if self._translator.lang == "en" else "EN")
         )
@@ -941,6 +947,7 @@ class MainWindow(QMainWindow):
             snapshot_dir=camera_snapshot_dir,
         ))
         self.objective_panel.objective_changed.connect(self.camera_window.set_objective)
+        self.camera_window.close_guard = lambda: not self._cutting_busy()
 
         root.addWidget(self._build_stage_panel(), 30)
         root.addWidget(self._build_axis_control_panel(), 46)
@@ -1096,6 +1103,67 @@ class MainWindow(QMainWindow):
         self.camera_window.show()
         self.camera_window.raise_()
         self.camera_window.activateWindow()
+
+    def _cutting_busy(self) -> bool:
+        return self.cutting_window is not None and (
+            self.cutting_window.busy or getattr(self.cutting_window, "interlocked", False) is True)
+
+    def show_cutting_window(self) -> None:
+        if self.cutting_window is None:
+            from .cutting_window import CuttingWindow
+            self.cutting_window = CuttingWindow(self.controller, self.camera_window.camera_panel)
+            self.cutting_window.start_guard = self._check_cutting_start
+            self.cutting_window.busy_changed.connect(self._set_cutting_busy)
+        self.cutting_window.show()
+        self.cutting_window.raise_()
+        self.cutting_window.activateWindow()
+
+    def _check_cutting_start(self) -> None:
+        if self.gamepad_panel is not None and self.gamepad_panel._controller.enabled:
+            raise MotionControllerError(tr("请先停用手柄控制"))
+        if self._closing or self._board_action_in_flight or self._board_action_executor.is_busy():
+            raise MotionControllerError(tr("其他设备操作尚未完成"))
+        for name in ("_move_thread", "_connect_thread", "_read_thread"):
+            worker = getattr(self.objective_panel, name, None)
+            if worker is not None and worker.isRunning():
+                raise MotionControllerError(tr("其他设备操作尚未完成"))
+        camera = self.camera_window.camera_panel
+        if camera._task_executor.is_busy() or camera._closing:
+            raise MotionControllerError(tr("其他设备操作尚未完成"))
+
+    def _set_cutting_busy(self, busy: bool) -> None:
+        if busy:
+            if self.gamepad_panel is not None:
+                self.gamepad_panel.disarm()
+            if self._motion_command_queue is not None:
+                self._motion_command_queue.cancel_pending()
+            widgets = list(self.controls["axisControlPanel"].findChildren(QWidget))
+            # Microscope buttons live beside the stage image, outside axisControlPanel.
+            widgets += [w for key, w in self.controls.items()
+                        if key.endswith("3") and isinstance(w, (QPushButton, QAbstractSpinBox))]
+            widgets += [self.objective_panel, self.camera_window.camera_panel]
+            if self.gamepad_panel is not None:
+                widgets.append(self.gamepad_panel)
+            seen = set()
+            recorded = {widget for widget, _ in self._cutting_disabled_widgets}
+            for widget in widgets:
+                if widget in seen or widget is self.controls.get("btnStopAll"):
+                    continue
+                seen.add(widget)
+                if isinstance(widget, (QPushButton, QAbstractSpinBox, QComboBox)) or widget in (
+                    self.objective_panel, self.camera_window.camera_panel, self.gamepad_panel
+                ):
+                    if widget not in recorded:
+                        self._cutting_disabled_widgets.append((widget, widget.isEnabled()))
+                    widget.setEnabled(False)
+        else:
+            for widget, enabled in self._cutting_disabled_widgets:
+                widget.setEnabled(enabled)
+            self._cutting_disabled_widgets.clear()
+
+    def _abort_cutting(self) -> None:
+        if self.cutting_window is not None:
+            self.cutting_window.abort()
 
     def _build_stage_map(self) -> QFrame:
         stage_map = self._register("stageMap", StageMapWidget(STAGE_OVERVIEW_IMAGE))
@@ -1782,6 +1850,7 @@ class MainWindow(QMainWindow):
         return not isinstance(self._board_action_executor, InlineBoardExecutor)
 
     def _set_board_controls_enabled(self, enabled: bool) -> None:
+        enabled = enabled and not self._cutting_busy()
         for name in ("btnOpen", "btnClose", "button4"):
             widget = self.controls.get(name)
             if widget is not None:
@@ -1819,6 +1888,7 @@ class MainWindow(QMainWindow):
             self._set_board_controls_enabled(True)
 
     def _stop_all_motion(self) -> None:
+        self._abort_cutting()
         # "停止移动" means everything stops: cancel any discrete jog/relative moves
         # already queued (priority 10) BEFORE enqueuing the stop, so they cannot
         # run after the stop. cancel_pending never touches the not-yet-submitted
@@ -2546,6 +2616,7 @@ class MainWindow(QMainWindow):
         return step_to_pulse_delta(axis, float(self.controls[name].value()))
 
     def _gamepad_stop_all(self) -> None:
+        self._abort_cutting()
         # Direct emergency/release stop path for the gamepad: bypasses the motion
         # QUEUE so a release or Back press stops a merely-BUSY queue without waiting
         # behind pending work. NOTE: controller.stop_all() is still @_api_locked, so it
@@ -2704,6 +2775,8 @@ class MainWindow(QMainWindow):
         on_success: Callable[[object], None] | None = None,
     ) -> bool:
         if self._closing:
+            return False
+        if self._cutting_busy() and priority > 0:
             return False
         queue = self._active_motion_queue()
         if queue is None:
@@ -2977,6 +3050,7 @@ class MainWindow(QMainWindow):
         at priority 0 so it is dispatched ahead of anything queued concurrently; it
         cannot, however, preempt a worker already wedged in a blocking DLL call
         (see _on_position_refresh_watchdog_timeout for the residual limitation)."""
+        self._abort_cutting()
         self._axis9_home_generation += 1
         queue = self._active_motion_queue()
         if queue is not None:
@@ -3126,6 +3200,7 @@ class MainWindow(QMainWindow):
         if self._closing:
             return
         self._closing = True
+        self._abort_cutting()
         timer = getattr(self, "timer", None)
         if timer is not None:
             timer.stop()
@@ -3205,6 +3280,10 @@ class MainWindow(QMainWindow):
             except NosepieceError as exc:
                 self.statusBar().showMessage(str(exc))
         camera_window = getattr(self, "camera_window", None)
+        if self.cutting_window is not None:
+            if not self.cutting_window.prepare_for_close(timeout_ms=1000):
+                _audit.critical("Cutting stop unconfirmed during shutdown")
+            self.cutting_window.hide()
         if camera_window is not None and hasattr(camera_window, "close_after_prepare"):
             if not camera_window.close_after_prepare(timeout_ms=2000):
                 _audit.warning("Camera close unconfirmed at shutdown deadline")
@@ -3236,4 +3315,19 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("窗口关闭按钮已禁用：请点击右下角「退出 Exit」按钮退出程序"))
             return
         self._prepare_for_close()
+        if self.cutting_window is not None and not self.cutting_window.prepare_for_close(timeout_ms=0):
+            event.ignore()
+            self.centralWidget().setEnabled(False)
+            self.statusBar().showMessage(tr("等待切割任务停止；设备状态尚未确认"))
+            if not hasattr(self, "_cutting_exit_poll"):
+                self._cutting_exit_poll = QTimer(self)
+                self._cutting_exit_poll.setInterval(100)
+                self._cutting_exit_poll.timeout.connect(self._finish_cutting_exit)
+                self._cutting_exit_poll.start()
+            return
         super().closeEvent(event)
+
+    def _finish_cutting_exit(self) -> None:
+        if self.cutting_window.prepare_for_close(timeout_ms=0):
+            self._cutting_exit_poll.stop()
+            self.close()

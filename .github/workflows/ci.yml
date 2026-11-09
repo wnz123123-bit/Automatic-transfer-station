@@ -18,11 +18,14 @@ jobs:
     # Windows PE binary committed under vendor/) and lets PySide6 + the offscreen Qt
     # plugin install without extra system packages.
     runs-on: windows-latest
+    timeout-minutes: 10
 
     env:
       # No display on CI: use Qt's offscreen platform plugin so the PySide6 widget
       # tests can create a QApplication headlessly.
       QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
 
     steps:
       - uses: actions/checkout@v4
@@ -42,4 +45,6 @@ jobs:
       - name: Run tests
         # pyproject.toml provides testpaths=tests and pythonpath=src. The suite uses
         # fake controllers, so no real motion card / serial hardware is needed.
-        run: python -m pytest -q
+        # Fresh Qt application/process per module; all modules run and any native
+        # crash, assertion failure or timeout fails CI without an automatic retry.
+        run: python scripts/run_regression.py

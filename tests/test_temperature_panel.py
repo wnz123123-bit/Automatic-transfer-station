@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,6 +17,69 @@ PYTHON_DIR = SRC_DIR / "automatic_transfer_station"
 sys.path.insert(0, str(SRC_DIR))
 
 _QT_APP = None
+
+# A failed cleanup must retain its QObject owners, never destroy a live QThread.
+_UNFINISHED_TEMPERATURE_PANELS = []
+
+
+@pytest.fixture(autouse=True)
+def _close_test_temperature_panels(monkeypatch, _close_test_main_windows):
+    """Own standalone panels until their workers and queued callbacks settle.
+
+    MainWindow's fixture owns embedded panels. Depending on it keeps this cleanup
+    ahead of its event pump, and both ahead of translator observer teardown.
+    """
+    from functools import wraps
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject
+    from shiboken6 import isValid
+    from automatic_transfer_station.temperature_panel import TemperaturePanel
+    from conftest import _window_workers
+
+    panels = []
+    original_init = TemperaturePanel.__init__
+
+    @wraps(original_init)
+    def track(panel, *args, **kwargs):
+        original_init(panel, *args, **kwargs)
+        panels.append(panel)
+
+    monkeypatch.setattr(TemperaturePanel, "__init__", track)
+    yield
+
+    standalone = [p for p in panels if isValid(p) and p.parent() is None]
+    if not standalone:
+        return
+    roots = list(standalone)
+    for panel in standalone:
+        panel.monitor_timer.stop()
+        # Close tests already called prepare_for_close, and may have explicitly
+        # reaped detached workers. Do not call wait_for_idle on deleted wrappers
+        # retained in that executor's historical _threads set.
+        if not panel._closing:
+            panel.prepare_for_close(timeout_ms=0)
+        executor = panel._serial_executor
+        if isinstance(executor, QObject) and isValid(executor) and executor.parent() is None:
+            roots.append(executor)
+
+    deadline = time.monotonic() + 2.0
+    while True:
+        # Strong owners stay alive while queued result/finished slots drain.
+        get_app().processEvents()
+        pending = _window_workers(roots)
+        if not pending:
+            break
+        if time.monotonic() >= deadline:
+            _UNFINISHED_TEMPERATURE_PANELS.extend(roots)
+            pytest.fail("Temperature teardown retained unfinished workers: " + ", ".join(pending))
+        time.sleep(0.01)
+
+    for panel in standalone:
+        panel.close()
+    for root in roots:
+        if isValid(root):
+            root.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    assert all(not isValid(root) for root in roots), "temperature test owner survived teardown"
 
 
 def get_app():

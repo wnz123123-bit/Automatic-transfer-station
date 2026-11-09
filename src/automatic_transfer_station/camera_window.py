@@ -22,6 +22,7 @@ class CameraWindow(QMainWindow):
         self._tr = tr
         self._rt = Retranslator(translator)
         self._prepared_for_close = False
+        self.close_guard = None
         self.setObjectName("cameraWindow")
         self._rt.custom(lambda: self.setWindowTitle(self._tr("Basler 相机")))
         self.resize(760, 620)
@@ -49,6 +50,9 @@ class CameraWindow(QMainWindow):
         self.camera_panel.set_objective(label, position)
 
     def closeEvent(self, event) -> None:
+        if not self._prepared_for_close and self.close_guard is not None and not self.close_guard():
+            event.ignore()
+            return
         if not self._prepared_for_close:
             self.prepare_for_close(timeout_ms=2000)
         super().closeEvent(event)

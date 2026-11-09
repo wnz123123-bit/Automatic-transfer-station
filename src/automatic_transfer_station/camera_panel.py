@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QDeadlineTimer, QElapsedTimer, QObject, Qt, QThread, QTimer, Signal
@@ -180,6 +181,7 @@ class CameraPreviewThread(QThread):
         timeout_ms: int = DEFAULT_CAMERA_GRAB_TIMEOUT_MS,
         frame_interval_ms: int = DEFAULT_CAMERA_PREVIEW_INTERVAL_MS,
         emit_interval_ms: float = DEFAULT_CAMERA_RENDER_INTERVAL_MS,
+        context_provider=None,
     ):
         super().__init__(parent)
         self.controller = controller
@@ -187,6 +189,7 @@ class CameraPreviewThread(QThread):
         self.frame_interval_ms = max(0.0, float(frame_interval_ms))
         self.emit_interval_ms = max(0.0, float(emit_interval_ms))
         self._stop_requested = False
+        self.context_provider = context_provider
 
     def request_stop(self) -> None:
         self._stop_requested = True
@@ -201,7 +204,17 @@ class CameraPreviewThread(QThread):
             while not self._stop_requested:
                 frame_timer = QElapsedTimer()
                 frame_timer.start()
+                capture_started = time.monotonic()
+                capture_context = self.context_provider() if self.context_provider else None
                 frame = self.controller.grab_one(timeout_ms=self.timeout_ms)
+                if self.context_provider and capture_context != self.context_provider():
+                    continue
+                frame = replace(frame, metadata={
+                    **frame.metadata,
+                    "capture_started_monotonic": capture_started,
+                    "capture_finished_monotonic": time.monotonic(),
+                    "capture_context": capture_context,
+                })
                 current_ms = int(preview_timer.elapsed())
                 fps = self._frame_rate(last_frame_ms, current_ms)
                 last_frame_ms = current_ms
@@ -301,6 +314,8 @@ class CameraImageLabel(QLabel):
 
 
 class CameraPanel(QWidget):
+    raw_frame_ready = Signal(object)
+
     def __init__(
         self,
         register: Callable[[str, object], object] | None = None,
@@ -340,6 +355,7 @@ class CameraPanel(QWidget):
         self._overlay_refresh_scheduled = False
         self._capabilities: CameraCapabilities | None = None
         self._current_objective = self.settings.objective or DEFAULT_OBJECTIVE
+        self.cutting_reference_revision = 0
         self._calibration_active = False
         self._calibration_known_um = 100.0
         self._calibration_points: list[tuple[float, float]] = []
@@ -495,6 +511,7 @@ class CameraPanel(QWidget):
         snap_resolution = self._register("cameraSnapResolutionCombo", QComboBox())
         self._populate_resolution_combos()
         live_resolution.currentTextChanged.connect(lambda _text: self._clear_measurements_for_coordinate_change())
+        live_resolution.currentTextChanged.connect(self._invalidate_cutting_reference)
         quality_layout.addRow(self._translated_label("Live 像素"), live_resolution)
         quality_layout.addRow(self._translated_label("Snap 像素"), snap_resolution)
         control_layout.addWidget(quality_group)
@@ -777,6 +794,7 @@ class CameraPanel(QWidget):
     def connect_camera(self) -> None:
         if self._is_connected():
             return
+        self.cutting_reference_revision += 1
 
         self._set_status("正在连接相机...")
         self._sync_connection_state(False)
@@ -796,6 +814,7 @@ class CameraPanel(QWidget):
         self._task_executor.submit("connect", action, self._on_task_done, self._on_task_error)
 
     def disconnect_camera(self) -> None:
+        self.cutting_reference_revision += 1
         self.stop_preview()
         controller = self.controller
         if controller is None:
@@ -820,7 +839,7 @@ class CameraPanel(QWidget):
             return
         if self._preview_thread is not None:
             return
-        thread = CameraPreviewThread(self._controller(), self)
+        thread = CameraPreviewThread(self._controller(), self, context_provider=self._cutting_camera_context)
         thread.frame_ready.connect(self._handle_frame)
         thread.failed.connect(self._handle_preview_error)
         thread.finished.connect(lambda t=thread: self._preview_finished(t))
@@ -829,6 +848,34 @@ class CameraPanel(QWidget):
         self.controls["cameraPreview"].setText(self._tr("停止预览"))
         self._set_status("相机预览中")
         thread.start()
+
+    def capture_cutting_reference(self):
+        """Worker-safe reference acquisition on the existing camera connection."""
+        from .cutting_geometry import CalibrationContext
+        from .cutting_session import FrameEnvelope
+        controller = self.controller
+        if controller is None or controller.current_device is None:
+            raise CameraError("Camera is not connected")
+        objective = self._current_objective
+        revision = self.cutting_reference_revision
+        serial = controller.current_device.serial_number
+        started = time.monotonic()
+        frame = controller.grab_reference()
+        if (revision != self.cutting_reference_revision or controller is not self.controller
+                or controller.current_device is None
+                or controller.current_device.serial_number != serial):
+            raise CameraError("Camera or objective changed during capture")
+        context = CalibrationContext(serial, objective, frame.width, frame.height, frame.binning)
+        return FrameEnvelope(frame, context, started, revision)
+
+    def _invalidate_cutting_reference(self, *_args) -> None:
+        self.cutting_reference_revision += 1
+
+    def _cutting_camera_context(self) -> dict:
+        device = getattr(self.controller, "current_device", None)
+        return {"camera_serial": getattr(device, "serial_number", ""),
+                "objective": self._current_objective,
+                "source_revision": self.cutting_reference_revision}
 
     def stop_preview(self, timeout_ms: int = PREVIEW_STOP_TIMEOUT_MS) -> bool:
         thread = self._preview_thread
@@ -1185,6 +1232,7 @@ class CameraPanel(QWidget):
     def prepare_for_close(self, timeout_ms: int = 5000) -> bool:
         deadline = QDeadlineTimer(max(0, int(timeout_ms)))
         if self._close_result is None:
+            self.cutting_reference_revision += 1
             self._closing = True
             self.stop_preview(timeout_ms=deadline.remainingTime())
             executor = self._task_executor
@@ -1256,6 +1304,7 @@ class CameraPanel(QWidget):
     def _handle_frame(self, frame: CameraFrame, fps: float | None = None) -> None:
         if self._closing:
             return
+        self.raw_frame_ready.emit(frame)
         self._last_frame = frame
         self._pending_frame = frame
         self._set_preview_fps(fps)
@@ -1523,6 +1572,8 @@ class CameraPanel(QWidget):
             return
         previous_objective = self._current_objective
         self._current_objective = str(label)
+        if previous_objective != self._current_objective:
+            self.cutting_reference_revision += 1
         combo = self.controls.get("cameraObjectiveCombo")
         if isinstance(combo, QComboBox) and combo.currentText() != self._current_objective:
             combo.blockSignals(True)
